@@ -1,0 +1,430 @@
+/**
+ * CLI Detection Service - Auto-detects and caches available AI CLI tools
+ * Supports Claude Code, OpenAI Codex, Google Gemini, Ollama, and more
+ */
+
+import { spawn } from 'child_process';
+import { existsSync } from 'fs';
+import { CliCapabilities } from './adapters/base-cli-adapter';
+
+/**
+ * Information about a detected CLI tool
+ */
+export interface CliInfo {
+  name: string;
+  command: string;
+  displayName: string;
+  installed: boolean;
+  version?: string;
+  path?: string;
+  authenticated?: boolean;
+  error?: string;
+  capabilities?: string[];
+}
+
+/**
+ * Result of CLI detection
+ */
+export interface DetectionResult {
+  detected: CliInfo[];
+  available: CliInfo[];
+  unavailable: CliInfo[];
+  timestamp: Date;
+}
+
+/**
+ * CLI type identifiers
+ */
+export type CliType =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'ollama'
+  | 'aider'
+  | 'continue'
+  | 'cursor'
+  | 'copilot';
+
+/**
+ * Registry entry for a CLI tool
+ */
+interface CliRegistryEntry {
+  name: string;
+  command: string;
+  displayName: string;
+  versionFlag: string;
+  versionPattern: RegExp;
+  authCheckFlag?: string;
+  authPattern?: RegExp;
+  capabilities: string[];
+  alternativePaths: string[];
+}
+
+/**
+ * Registry of known CLI tools
+ */
+const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
+  claude: {
+    name: 'claude',
+    command: 'claude',
+    displayName: 'Claude Code',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'tool-use', 'file-access', 'shell', 'multi-turn', 'vision'],
+    alternativePaths: [
+      '/usr/local/bin/claude',
+      '/usr/bin/claude',
+      `${process.env['HOME']}/.local/bin/claude`,
+    ],
+  },
+  codex: {
+    name: 'codex',
+    command: 'codex',
+    displayName: 'OpenAI Codex CLI',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'tool-use', 'file-access', 'shell', 'multi-turn', 'code-execution'],
+    alternativePaths: [
+      '/usr/local/bin/codex',
+      `${process.env['HOME']}/.local/bin/codex`,
+    ],
+  },
+  gemini: {
+    name: 'gemini',
+    command: 'gemini',
+    displayName: 'Google Gemini CLI',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'tool-use', 'file-access', 'shell', 'multi-turn', 'vision', 'large-context'],
+    alternativePaths: [
+      '/usr/local/bin/gemini',
+      `${process.env['HOME']}/.local/bin/gemini`,
+    ],
+  },
+  ollama: {
+    name: 'ollama',
+    command: 'ollama',
+    displayName: 'Ollama',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'multi-turn', 'local'],
+    alternativePaths: [
+      '/usr/local/bin/ollama',
+      `${process.env['HOME']}/.ollama/bin/ollama`,
+      '/Applications/Ollama.app/Contents/MacOS/ollama',
+    ],
+  },
+  aider: {
+    name: 'aider',
+    command: 'aider',
+    displayName: 'Aider',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'file-access', 'git-integration', 'multi-turn'],
+    alternativePaths: [
+      `${process.env['HOME']}/.local/bin/aider`,
+    ],
+  },
+  continue: {
+    name: 'continue',
+    command: 'continue',
+    displayName: 'Continue',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'file-access', 'ide-integration'],
+    alternativePaths: [],
+  },
+  cursor: {
+    name: 'cursor',
+    command: 'cursor',
+    displayName: 'Cursor',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'file-access', 'shell', 'ide-integration'],
+    alternativePaths: [
+      '/Applications/Cursor.app/Contents/MacOS/cursor',
+      '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
+    ],
+  },
+  copilot: {
+    name: 'copilot',
+    command: 'gh',
+    displayName: 'GitHub Copilot CLI',
+    versionFlag: 'copilot --version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['streaming', 'shell', 'git-integration'],
+    alternativePaths: [
+      '/usr/local/bin/gh',
+    ],
+  },
+};
+
+/**
+ * CLI Detection Service - Singleton that detects and caches available CLI tools
+ */
+export class CliDetectionService {
+  private static instance: CliDetectionService;
+  private cache: DetectionResult | null = null;
+  private cacheTimeout = 60000; // 1 minute cache
+  private cacheTime: number = 0;
+
+  private constructor() {}
+
+  /**
+   * Get the singleton instance
+   */
+  static getInstance(): CliDetectionService {
+    if (!this.instance) {
+      this.instance = new CliDetectionService();
+    }
+    return this.instance;
+  }
+
+  /**
+   * Detect all available CLI tools
+   */
+  async detectAll(forceRefresh = false): Promise<DetectionResult> {
+    // Check cache
+    if (!forceRefresh && this.cache) {
+      const age = Date.now() - this.cacheTime;
+      if (age < this.cacheTimeout) {
+        return this.cache;
+      }
+    }
+
+    // Detect all CLIs in parallel
+    const cliTypes = Object.keys(CLI_REGISTRY) as CliType[];
+    const results = await Promise.all(
+      cliTypes.map((type) => this.checkCli(type))
+    );
+
+    const detectionResult: DetectionResult = {
+      detected: results,
+      available: results.filter((r) => r.installed),
+      unavailable: results.filter((r) => !r.installed),
+      timestamp: new Date(),
+    };
+
+    // Update cache
+    this.cache = detectionResult;
+    this.cacheTime = Date.now();
+
+    return detectionResult;
+  }
+
+  /**
+   * Detect a specific CLI tool
+   */
+  async detectOne(type: CliType): Promise<CliInfo> {
+    return this.checkCli(type);
+  }
+
+  /**
+   * Check if a specific CLI is available
+   */
+  async isInstalled(type: CliType): Promise<boolean> {
+    const info = await this.detectOne(type);
+    return info.installed;
+  }
+
+  /**
+   * Get the list of known CLI types
+   */
+  getKnownClis(): CliType[] {
+    return Object.keys(CLI_REGISTRY) as CliType[];
+  }
+
+  /**
+   * Get CLI registry entry
+   */
+  getCliConfig(type: CliType): CliRegistryEntry | undefined {
+    return CLI_REGISTRY[type];
+  }
+
+  /**
+   * Get the first available CLI
+   */
+  async getDefaultCli(): Promise<CliInfo | null> {
+    const result = await this.detectAll();
+    // Prefer claude, then gemini, then codex, then others
+    const priority: CliType[] = ['claude', 'gemini', 'codex', 'ollama'];
+    for (const type of priority) {
+      const cli = result.available.find((c) => c.name === type);
+      if (cli) return cli;
+    }
+    return result.available[0] || null;
+  }
+
+  /**
+   * Clear the detection cache
+   */
+  clearCache(): void {
+    this.cache = null;
+    this.cacheTime = 0;
+  }
+
+  /**
+   * Set cache timeout
+   */
+  setCacheTimeout(ms: number): void {
+    this.cacheTimeout = ms;
+  }
+
+  /**
+   * Check a specific CLI tool
+   */
+  private async checkCli(type: CliType): Promise<CliInfo> {
+    const config = CLI_REGISTRY[type];
+    if (!config) {
+      return {
+        name: type,
+        command: type,
+        displayName: type,
+        installed: false,
+        error: 'Unknown CLI type',
+      };
+    }
+
+    // First try the main command
+    let result = await this.checkCommand(config.command, config);
+
+    // If not found, try alternative paths
+    if (!result.installed && config.alternativePaths.length > 0) {
+      for (const altPath of config.alternativePaths) {
+        // Expand home directory
+        const expandedPath = altPath.replace('~', process.env['HOME'] || '');
+        if (existsSync(expandedPath)) {
+          result = await this.checkCommand(expandedPath, config);
+          if (result.installed) {
+            result.path = expandedPath;
+            break;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Check if a specific command is available
+   */
+  private checkCommand(command: string, config: CliRegistryEntry): Promise<CliInfo> {
+    return new Promise((resolve) => {
+      const result: CliInfo = {
+        name: config.name,
+        command: config.command,
+        displayName: config.displayName,
+        installed: false,
+        capabilities: config.capabilities,
+      };
+
+      try {
+        // Build the version check arguments
+        const args = config.versionFlag.split(' ');
+
+        // Extend PATH to include common CLI installation directories
+        // This is needed for packaged Electron apps where PATH may be limited
+        const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
+        const additionalPaths = [
+          '/usr/local/bin',
+          '/opt/homebrew/bin',
+          `${homeDir}/.local/bin`,
+          `${homeDir}/.npm-global/bin`,
+          `${homeDir}/.nvm/versions/node/current/bin`,
+          '/usr/bin',
+          '/bin',
+        ].filter(Boolean);
+        const currentPath = process.env['PATH'] || '';
+        const extendedPath = [...additionalPaths, currentPath].join(':');
+
+        const proc = spawn(command, args, {
+          timeout: 5000,
+          shell: true,
+          env: { ...process.env, PATH: extendedPath },
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout?.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        proc.stderr?.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        proc.on('close', (code) => {
+          const output = stdout + stderr;
+          const versionMatch = output.match(config.versionPattern);
+
+          if (code === 0 || versionMatch) {
+            result.installed = true;
+            result.version = versionMatch?.[1];
+            result.path = command;
+            result.authenticated = !output.includes('not authenticated');
+          } else {
+            result.error = stderr.trim() || 'Command failed';
+          }
+          resolve(result);
+        });
+
+        proc.on('error', (err) => {
+          result.error = err.message;
+          resolve(result);
+        });
+
+        // Timeout fallback
+        setTimeout(() => {
+          if (!result.installed && !result.error) {
+            proc.kill();
+            result.error = 'Timeout checking CLI';
+            resolve(result);
+          }
+        }, 5000);
+      } catch (err) {
+        result.error = (err as Error).message;
+        resolve(result);
+      }
+    });
+  }
+
+  /**
+   * Map capability strings to CliCapabilities object
+   */
+  mapCapabilities(capabilities: string[]): CliCapabilities {
+    return {
+      streaming: capabilities.includes('streaming'),
+      toolUse: capabilities.includes('tool-use'),
+      fileAccess: capabilities.includes('file-access'),
+      shellExecution: capabilities.includes('shell'),
+      multiTurn: capabilities.includes('multi-turn'),
+      vision: capabilities.includes('vision'),
+      codeExecution: capabilities.includes('code-execution') || capabilities.includes('shell'),
+      contextWindow: capabilities.includes('large-context') ? 1000000 : 200000,
+      outputFormats: ['text'],
+    };
+  }
+}
+
+// Convenience functions for backward compatibility
+export async function detectAvailableClis(): Promise<CliInfo[]> {
+  const service = CliDetectionService.getInstance();
+  const result = await service.detectAll();
+  return result.detected;
+}
+
+export async function isCliAvailable(type: CliType): Promise<CliInfo> {
+  const service = CliDetectionService.getInstance();
+  return service.detectOne(type);
+}
+
+export async function getDefaultCli(): Promise<CliInfo | null> {
+  const service = CliDetectionService.getInstance();
+  return service.getDefaultCli();
+}
+
+export function getCliConfig(type: CliType): CliRegistryEntry | undefined {
+  return CLI_REGISTRY[type];
+}

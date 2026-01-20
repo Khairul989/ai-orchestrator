@@ -21,14 +21,24 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
       >
         <span class="agent-icon" [style.color]="selectedAgent().color">
           @switch (selectedAgent().icon) {
-            @case ('hammer') { <span class="icon-symbol">&#9874;</span> }
-            @case ('map') { <span class="icon-symbol">&#128506;</span> }
-            @case ('eye') { <span class="icon-symbol">&#128065;</span> }
-            @default { <span class="icon-symbol">&#9679;</span> }
+            @case ('hammer') {
+              <span class="icon-symbol">&#9874;</span>
+            }
+            @case ('map') {
+              <span class="icon-symbol">&#128506;</span>
+            }
+            @case ('eye') {
+              <span class="icon-symbol">&#128065;</span>
+            }
+            @default {
+              <span class="icon-symbol">&#9679;</span>
+            }
           }
         </span>
         <span class="agent-name">{{ selectedAgent().name }}</span>
-        <span class="dropdown-arrow">{{ isOpen() ? '&#9650;' : '&#9660;' }}</span>
+        <span class="dropdown-arrow">{{
+          isOpen() ? '&#9650;' : '&#9660;'
+        }}</span>
       </button>
 
       @if (isOpen()) {
@@ -42,10 +52,18 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
             >
               <span class="agent-icon" [style.color]="agent.color">
                 @switch (agent.icon) {
-                  @case ('hammer') { <span class="icon-symbol">&#9874;</span> }
-                  @case ('map') { <span class="icon-symbol">&#128506;</span> }
-                  @case ('eye') { <span class="icon-symbol">&#128065;</span> }
-                  @default { <span class="icon-symbol">&#9679;</span> }
+                  @case ('hammer') {
+                    <span class="icon-symbol">&#9874;</span>
+                  }
+                  @case ('map') {
+                    <span class="icon-symbol">&#128506;</span>
+                  }
+                  @case ('eye') {
+                    <span class="icon-symbol">&#128065;</span>
+                  }
+                  @default {
+                    <span class="icon-symbol">&#9679;</span>
+                  }
                 }
               </span>
               <div class="agent-info">
@@ -62,116 +80,118 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
       <div class="backdrop" (click)="closeDropdown()"></div>
     }
   `,
-  styles: [`
-    :host {
-      position: relative;
-      display: inline-block;
-    }
+  styles: [
+    `
+      :host {
+        position: relative;
+        display: inline-block;
+      }
 
-    .agent-selector {
-      position: relative;
-      z-index: 100;
-    }
+      .agent-selector {
+        position: relative;
+        z-index: 100;
+      }
 
-    .selected-agent {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
-      background: var(--bg-secondary);
-      border: 1px solid;
-      border-radius: 6px;
-      color: var(--text-primary);
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      font-size: 13px;
-    }
+      .selected-agent {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--bg-secondary);
+        border: 1px solid;
+        border-radius: 6px;
+        color: var(--text-primary);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        font-size: 13px;
+      }
 
-    .selected-agent:hover {
-      background: var(--bg-tertiary);
-    }
+      .selected-agent:hover {
+        background: var(--bg-tertiary);
+      }
 
-    .agent-icon {
-      font-size: 14px;
-    }
+      .agent-icon {
+        font-size: 14px;
+      }
 
-    .icon-symbol {
-      display: inline-block;
-      width: 16px;
-      text-align: center;
-    }
+      .icon-symbol {
+        display: inline-block;
+        width: 16px;
+        text-align: center;
+      }
 
-    .agent-name {
-      font-weight: 500;
-    }
+      .agent-name {
+        font-weight: 500;
+      }
 
-    .dropdown-arrow {
-      font-size: 10px;
-      opacity: 0.6;
-    }
+      .dropdown-arrow {
+        font-size: 10px;
+        opacity: 0.6;
+      }
 
-    .dropdown-menu {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      min-width: 220px;
-      margin-top: 4px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      box-shadow: var(--shadow-lg);
-      overflow: hidden;
-      z-index: 101;
-    }
+      .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        min-width: 220px;
+        margin-top: 4px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+        z-index: 101;
+      }
 
-    .agent-option {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      width: 100%;
-      padding: 10px 12px;
-      background: transparent;
-      border: none;
-      border-left: 3px solid transparent;
-      color: var(--text-primary);
-      cursor: pointer;
-      text-align: left;
-      transition: all var(--transition-fast);
-    }
+      .agent-option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        background: transparent;
+        border: none;
+        border-left: 3px solid transparent;
+        color: var(--text-primary);
+        cursor: pointer;
+        text-align: left;
+        transition: all var(--transition-fast);
+      }
 
-    .agent-option:hover {
-      background: var(--bg-tertiary);
-    }
+      .agent-option:hover {
+        background: var(--bg-tertiary);
+      }
 
-    .agent-option.selected {
-      background: var(--bg-tertiary);
-    }
+      .agent-option.selected {
+        background: var(--bg-tertiary);
+      }
 
-    .agent-info {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
+      .agent-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
 
-    .agent-info .agent-name {
-      font-size: 13px;
-    }
+      .agent-info .agent-name {
+        font-size: 13px;
+      }
 
-    .agent-description {
-      font-size: 11px;
-      color: var(--text-secondary);
-    }
+      .agent-description {
+        font-size: 11px;
+        color: var(--text-secondary);
+      }
 
-    .backdrop {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 99;
-    }
-  `]
+      .backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 99;
+      }
+    `
+  ]
 })
 export class AgentSelectorComponent {
   private agentStore = inject(AgentStore);

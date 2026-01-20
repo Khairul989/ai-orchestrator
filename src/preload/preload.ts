@@ -12,9 +12,11 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 const IPC_CHANNELS = {
   // Instance management
   INSTANCE_CREATE: 'instance:create',
+  INSTANCE_CREATE_WITH_MESSAGE: 'instance:create-with-message',
   INSTANCE_SEND_INPUT: 'instance:send-input',
   INSTANCE_TERMINATE: 'instance:terminate',
   INSTANCE_TERMINATE_ALL: 'instance:terminate-all',
+  INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_RESTART: 'instance:restart',
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_LIST: 'instance:list',
@@ -419,6 +421,17 @@ const electronAPI = {
   },
 
   /**
+   * Create a new Claude instance and immediately send a message
+   */
+  createInstanceWithMessage: (payload: {
+    workingDirectory: string;
+    message: string;
+    attachments?: unknown[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE, payload);
+  },
+
+  /**
    * Send input to an instance
    */
   sendInput: (payload: {
@@ -437,6 +450,16 @@ const electronAPI = {
     graceful?: boolean;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.INSTANCE_TERMINATE, payload);
+  },
+
+  /**
+   * Interrupt an instance (Ctrl+C equivalent)
+   * Sends SIGINT to pause the current operation without terminating
+   */
+  interruptInstance: (payload: {
+    instanceId: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.INSTANCE_INTERRUPT, payload);
   },
 
   /**
@@ -3041,6 +3064,36 @@ const electronAPI = {
    */
   trainingConfigure: (config: Record<string, unknown>): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_CONFIGURE, config);
+  },
+
+  // ============================================
+  // Generic IPC Methods (for dynamic channels)
+  // ============================================
+
+  /**
+   * Generic invoke - call any IPC channel
+   * Use when specific method is not available
+   */
+  invoke: (channel: string, payload?: unknown): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(channel, payload);
+  },
+
+  /**
+   * Generic event listener - subscribe to any IPC channel
+   * Use when specific onXxx method is not available
+   * Returns an unsubscribe function
+   */
+  on: (channel: string, callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
+   * One-time event listener - fires once then auto-removes
+   */
+  once: (channel: string, callback: (data: unknown) => void): void => {
+    ipcRenderer.once(channel, (_event: IpcRendererEvent, data: unknown) => callback(data));
   },
 
   // ============================================

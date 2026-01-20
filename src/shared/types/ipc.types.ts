@@ -10,11 +10,13 @@ import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage } from
 export const IPC_CHANNELS = {
   // Instance management
   INSTANCE_CREATE: 'instance:create',
+  INSTANCE_CREATE_WITH_MESSAGE: 'instance:create-with-message',
   INSTANCE_TERMINATE: 'instance:terminate',
   INSTANCE_TERMINATE_ALL: 'instance:terminate-all',
   INSTANCE_RESTART: 'instance:restart',
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_SEND_INPUT: 'instance:send-input',
+  INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
   INSTANCE_OUTPUT: 'instance:output',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',
@@ -554,6 +556,10 @@ export interface InstanceSendInputPayload {
 export interface InstanceTerminatePayload {
   instanceId: string;
   graceful?: boolean;
+}
+
+export interface InstanceInterruptPayload {
+  instanceId: string;
 }
 
 export interface InstanceRestartPayload {

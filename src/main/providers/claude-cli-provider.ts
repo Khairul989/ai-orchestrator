@@ -7,7 +7,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
-import { ClaudeCliAdapter } from '../cli/claude-cli-adapter';
+import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import type {
   ProviderType,
   ProviderCapabilities,
@@ -19,7 +19,7 @@ import type {
 } from '../../shared/types/provider.types';
 import { MODEL_PRICING } from '../../shared/types/provider.types';
 import type { ContextUsage } from '../../shared/types/instance.types';
-import { isCliAvailable } from '../cli/cli-detector';
+import { isCliAvailable } from '../cli/cli-detection';
 
 export class ClaudeCliProvider extends BaseProvider {
   private adapter: ClaudeCliAdapter | null = null;
@@ -51,9 +51,9 @@ export class ClaudeCliProvider extends BaseProvider {
       const cliInfo = await isCliAvailable('claude');
       return {
         type: 'claude-cli',
-        available: cliInfo.available,
-        authenticated: cliInfo.available, // CLI handles auth internally
-        error: cliInfo.available ? undefined : 'Claude CLI not found',
+        available: cliInfo.installed,
+        authenticated: cliInfo.installed, // CLI handles auth internally
+        error: cliInfo.installed ? undefined : 'Claude CLI not found',
       };
     } catch (error) {
       return {
@@ -100,7 +100,7 @@ export class ClaudeCliProvider extends BaseProvider {
 
     // Spawn the CLI process
     await this.adapter.spawn();
-    this.sessionId = this.adapter.getSessionId();
+    this.sessionId = this.adapter.getSessionId() || '';
   }
 
   async sendMessage(message: string, attachments?: ProviderAttachment[]): Promise<void> {
@@ -116,7 +116,7 @@ export class ClaudeCliProvider extends BaseProvider {
       data: a.data,
     }));
 
-    await this.adapter.sendMessage(message, cliAttachments);
+    await this.adapter.sendInput(message, cliAttachments);
   }
 
   async terminate(graceful: boolean = true): Promise<void> {

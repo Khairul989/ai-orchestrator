@@ -479,6 +479,33 @@ export class InstanceStore implements OnDestroy {
     }
   }
 
+  /** Create instance and immediately send a message */
+  async createInstanceWithMessage(message: string, files?: File[], workingDirectory?: string): Promise<void> {
+    console.log('InstanceStore: createInstanceWithMessage called with:', { message, filesCount: files?.length, workingDirectory });
+    this.state.update((s) => ({ ...s, loading: true }));
+
+    try {
+      // Convert files to base64 for IPC
+      const attachments = files && files.length > 0
+        ? await Promise.all(files.map((f) => this.fileToAttachment(f)))
+        : undefined;
+
+      const result = await this.ipc.createInstanceWithMessage({
+        workingDirectory: workingDirectory || '.',
+        message,
+        attachments,
+      });
+      console.log('InstanceStore: createInstanceWithMessage result:', result);
+    } catch (error) {
+      console.error('InstanceStore: createInstanceWithMessage error:', error);
+      this.state.update((s) => ({
+        ...s,
+        loading: false,
+        error: 'Failed to create instance',
+      }));
+    }
+  }
+
   /** Create a child instance */
   async createChildInstance(parentId: string): Promise<void> {
     const parent = this.getInstance(parentId);
@@ -517,6 +544,22 @@ export class InstanceStore implements OnDestroy {
   /** Terminate an instance */
   async terminateInstance(instanceId: string): Promise<void> {
     await this.ipc.terminateInstance(instanceId);
+  }
+
+  /** Interrupt an instance (Ctrl+C equivalent) */
+  async interruptInstance(instanceId: string): Promise<void> {
+    const result = await this.ipc.interruptInstance(instanceId);
+    if (result.success) {
+      // Optimistically update status to idle
+      this.state.update((current) => {
+        const newMap = new Map(current.instances);
+        const instance = newMap.get(instanceId);
+        if (instance && instance.status === 'busy') {
+          newMap.set(instanceId, { ...instance, status: 'idle' });
+        }
+        return { ...current, instances: newMap };
+      });
+    }
   }
 
   /** Restart an instance */

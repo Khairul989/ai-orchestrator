@@ -7,9 +7,13 @@ import {
   inject,
   signal,
   computed,
-  ChangeDetectionStrategy
+  ChangeDetectionStrategy,
+  HostListener,
+  effect
 } from '@angular/core';
 import { InstanceStore } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
+import { ElectronIpcService } from '../../core/services/electron-ipc.service';
 import { OutputStreamComponent } from './output-stream.component';
 import { ContextBarComponent } from './context-bar.component';
 import { InputPanelComponent } from './input-panel.component';
@@ -34,108 +38,118 @@ import { TodoListComponent } from './todo-list.component';
   ],
   template: `
     @if (instance(); as inst) {
-      <div class="instance-detail">
-        <!-- Header -->
-        <div class="detail-header">
-          <div class="instance-identity">
-            <div class="name-row">
-              <app-status-indicator [status]="inst.status" />
-              @if (isEditingName()) {
-                <input
-                  type="text"
-                  class="name-input"
-                  [value]="inst.displayName"
-                  (keydown.enter)="onSaveName($event)"
-                  (keydown.escape)="onCancelEditName()"
-                  (blur)="onSaveName($event)"
-                  #nameInput
-                />
-              } @else {
-                <h2
-                  class="instance-name editable"
-                  title="Click to rename"
-                  (click)="onStartEditName()"
+      <app-drop-zone
+        class="full-drop-zone"
+        (filesDropped)="onFilesDropped($event)"
+        (imagesPasted)="onImagesPasted($event)"
+      >
+        <div class="instance-detail">
+          <!-- Header -->
+          <div class="detail-header">
+            <div class="instance-identity">
+              <div class="name-row">
+                <app-status-indicator [status]="inst.status" />
+                @if (isEditingName()) {
+                  <input
+                    type="text"
+                    class="name-input"
+                    [value]="inst.displayName"
+                    (keydown.enter)="onSaveName($event)"
+                    (keydown.escape)="onCancelEditName()"
+                    (blur)="onSaveName($event)"
+                    #nameInput
+                  />
+                } @else {
+                  <h2
+                    class="instance-name editable"
+                    title="Click to rename"
+                    (click)="onStartEditName()"
+                  >
+                    {{ inst.displayName }}
+                    <span class="edit-icon">✏️</span>
+                  </h2>
+                }
+                <span class="session-id mono">{{ inst.sessionId }}</span>
+              </div>
+              <div class="instance-meta">
+                <button
+                  class="working-dir-btn mono truncate"
+                  [title]="inst.workingDirectory || 'Click to select a working folder'"
+                  (click)="onSelectFolder()"
                 >
-                  {{ inst.displayName }}
-                  <span class="edit-icon">✏️</span>
-                </h2>
+                  📁 {{ inst.workingDirectory || 'No folder selected' }}
+                </button>
+                <span class="separator">•</span>
+                <button
+                  class="yolo-badge"
+                  [class.active]="inst.yoloMode"
+                  [title]="inst.yoloMode ? 'YOLO Mode ON - Click to disable (will restart)' : 'YOLO Mode OFF - Click to enable (will restart)'"
+                  (click)="onToggleYolo()"
+                >
+                  ⚡ YOLO {{ inst.yoloMode ? 'ON' : 'OFF' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="header-actions">
+              @if (inst.status === 'busy') {
+                <button
+                  class="btn-action btn-interrupt"
+                  title="Interrupt Claude (Ctrl+C)"
+                  (click)="onInterrupt()"
+                >
+                  ⏸ Interrupt
+                </button>
               }
-              <span class="session-id mono">{{ inst.sessionId }}</span>
-            </div>
-            <div class="instance-meta">
               <button
-                class="working-dir-btn mono truncate"
-                [title]="inst.workingDirectory || 'Click to select a working folder'"
-                (click)="onSelectFolder()"
+                class="btn-action"
+                title="Restart instance"
+                (click)="onRestart()"
+                [disabled]="inst.status === 'initializing'"
               >
-                📁 {{ inst.workingDirectory || 'No folder selected' }}
+                ↻ Restart
               </button>
-              <span class="separator">•</span>
               <button
-                class="yolo-badge"
-                [class.active]="inst.yoloMode"
-                [title]="inst.yoloMode ? 'YOLO Mode ON - Click to disable (will restart)' : 'YOLO Mode OFF - Click to enable (will restart)'"
-                (click)="onToggleYolo()"
+                class="btn-action btn-danger"
+                title="Terminate instance"
+                (click)="onTerminate()"
               >
-                ⚡ YOLO {{ inst.yoloMode ? 'ON' : 'OFF' }}
+                × Terminate
+              </button>
+              <button
+                class="btn-action btn-primary"
+                title="Create child instance"
+                (click)="onCreateChild()"
+              >
+                + Child
               </button>
             </div>
           </div>
 
-          <div class="header-actions">
-            <button
-              class="btn-action"
-              title="Restart instance"
-              (click)="onRestart()"
-              [disabled]="inst.status === 'initializing'"
-            >
-              ↻ Restart
-            </button>
-            <button
-              class="btn-action btn-danger"
-              title="Terminate instance"
-              (click)="onTerminate()"
-            >
-              × Terminate
-            </button>
-            <button
-              class="btn-action btn-primary"
-              title="Create child instance"
-              (click)="onCreateChild()"
-            >
-              + Child
-            </button>
+          <!-- Context bar -->
+          <div class="context-section">
+            <app-context-bar [usage]="inst.contextUsage" [showDetails]="true" />
           </div>
-        </div>
 
-        <!-- Context bar -->
-        <div class="context-section">
-          <app-context-bar [usage]="inst.contextUsage" [showDetails]="true" />
-        </div>
+          <!-- TODO list -->
+          <app-todo-list [sessionId]="inst.sessionId" />
 
-        <!-- TODO list -->
-        <app-todo-list [sessionId]="inst.sessionId" />
-
-        <!-- Output stream -->
-        <div class="output-section">
-          <app-output-stream
-            [messages]="inst.outputBuffer"
-            [instanceId]="inst.id"
-          />
-          <!-- Activity status (shown when processing) - appears at bottom of conversation -->
-          @if (inst.status === 'busy' || inst.status === 'initializing') {
-            <app-activity-status
-              [status]="inst.status"
-              [activity]="currentActivity()"
+          <!-- Output stream -->
+          <div class="output-section">
+            <app-output-stream
+              [messages]="inst.outputBuffer"
+              [instanceId]="inst.id"
             />
-          }
-        </div>
+            <!-- Activity status (shown when processing) - appears at bottom of conversation -->
+            @if (inst.status === 'busy' || inst.status === 'initializing') {
+              <app-activity-status
+                [status]="inst.status"
+                [activity]="currentActivity()"
+              />
+            }
+          </div>
 
-        <!-- Input panel with drop zone -->
-        <app-drop-zone
-          (filesDropped)="onFilesDropped($event)"
-          (imagesPasted)="onImagesPasted($event)"
-        >
+          <!-- Input panel -->
           <app-input-panel
             [instanceId]="inst.id"
             [disabled]="inst.status === 'terminated'"
@@ -144,27 +158,47 @@ import { TodoListComponent } from './todo-list.component';
             (sendMessage)="onSendMessage($event)"
             (removeFile)="onRemoveFile($event)"
           />
-        </app-drop-zone>
 
-        <!-- Children section -->
-        <app-child-instances-panel
-          [childrenIds]="inst.childrenIds"
-          (selectChild)="onSelectChild($event)"
-        />
-      </div>
-    } @else {
-      <div class="no-selection">
-        <div class="no-selection-content">
-          <div class="no-selection-icon">🤖</div>
-          <p class="no-selection-title">No instance selected</p>
-          <p class="no-selection-hint">
-            Select an instance from the sidebar or create a new one
-          </p>
-          <button class="btn-create-large" (click)="onCreateNew()">
-            + Create New Instance
-          </button>
+          <!-- Children section -->
+          <app-child-instances-panel
+            [childrenIds]="inst.childrenIds"
+            (selectChild)="onSelectChild($event)"
+          />
         </div>
-      </div>
+      </app-drop-zone>
+    } @else {
+      <app-drop-zone
+        class="full-drop-zone"
+        (filesDropped)="onWelcomeFilesDropped($event)"
+        (imagesPasted)="onWelcomeImagesPasted($event)"
+      >
+        <div class="welcome-view">
+          <div class="welcome-content">
+            <div class="welcome-icon">🤖</div>
+            <h1 class="welcome-title">Claude Orchestrator</h1>
+            <p class="welcome-hint">Start a conversation to create a new instance</p>
+
+            <!-- Folder selector -->
+            <button
+              class="welcome-folder-btn"
+              (click)="onSelectWelcomeFolder()"
+              [title]="welcomeWorkingDirectory() || 'Click to select a working folder'"
+            >
+              📁 {{ welcomeWorkingDirectory() || 'Select working folder...' }}
+            </button>
+          </div>
+          <div class="welcome-input">
+            <app-input-panel
+              instanceId="new"
+              [disabled]="false"
+              placeholder="What would you like to work on?"
+              [pendingFiles]="welcomePendingFiles()"
+              (sendMessage)="onWelcomeSendMessage($event)"
+              (removeFile)="onWelcomeRemoveFile($event)"
+            />
+          </div>
+        </div>
+      </app-drop-zone>
     }
   `,
   styles: [
@@ -173,12 +207,22 @@ import { TodoListComponent } from './todo-list.component';
         display: flex;
         flex: 1;
         min-width: 0;
+        min-height: 0;
+      }
+
+      .full-drop-zone {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
       }
 
       .instance-detail {
         display: flex;
         flex-direction: column;
         flex: 1;
+        min-height: 0;
+        overflow: hidden;
         padding: var(--spacing-md);
         gap: var(--spacing-md);
       }
@@ -334,6 +378,23 @@ import { TodoListComponent } from './todo-list.component';
         }
       }
 
+      .btn-interrupt {
+        background: var(--warning-bg, #fef3c7);
+        color: var(--warning-color, #d97706);
+        border: 1px solid var(--warning-color, #d97706);
+        animation: pulse 2s ease-in-out infinite;
+
+        &:hover:not(:disabled) {
+          background: var(--warning-color, #d97706);
+          color: white;
+        }
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+
       .btn-primary {
         background: var(--primary-color);
         color: white;
@@ -368,48 +429,67 @@ import { TodoListComponent } from './todo-list.component';
         padding-bottom: var(--spacing-sm);
       }
 
-      /* No selection state */
-      .no-selection {
+      /* Welcome view (no selection) */
+      .welcome-view {
         display: flex;
         flex: 1;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
+        padding: var(--spacing-xl);
+        gap: var(--spacing-xl);
       }
 
-      .no-selection-content {
+      .welcome-content {
         text-align: center;
-        max-width: 300px;
+        max-width: 400px;
       }
 
-      .no-selection-icon {
-        font-size: 48px;
+      .welcome-icon {
+        font-size: 64px;
         margin-bottom: var(--spacing-md);
       }
 
-      .no-selection-title {
-        font-size: 18px;
-        font-weight: 500;
+      .welcome-title {
+        font-size: 28px;
+        font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: var(--spacing-xs);
+        margin: 0 0 var(--spacing-sm) 0;
       }
 
-      .no-selection-hint {
-        font-size: 14px;
+      .welcome-hint {
+        font-size: 16px;
         color: var(--text-secondary);
-        margin-bottom: var(--spacing-lg);
+        margin: 0;
       }
 
-      .btn-create-large {
-        padding: var(--spacing-md) var(--spacing-xl);
-        background: var(--primary-color);
-        color: white;
+      .welcome-input {
+        width: 100%;
+        max-width: 600px;
+      }
+
+      .welcome-folder-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        margin-top: var(--spacing-md);
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: var(--bg-secondary);
+        border: 1px dashed var(--border-color);
         border-radius: var(--radius-md);
+        color: var(--text-secondary);
         font-size: 14px;
-        font-weight: 500;
-        transition: background var(--transition-fast);
+        cursor: pointer;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        transition: all var(--transition-fast);
 
         &:hover {
-          background: var(--primary-hover);
+          border-color: var(--primary-color);
+          color: var(--text-primary);
+          background: var(--bg-tertiary);
         }
       }
     `
@@ -418,11 +498,51 @@ import { TodoListComponent } from './todo-list.component';
 })
 export class InstanceDetailComponent {
   private store = inject(InstanceStore);
+  private settingsStore = inject(SettingsStore);
+  private ipc = inject(ElectronIpcService);
 
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
   pendingFiles = signal<File[]>([]);
+  welcomePendingFiles = signal<File[]>([]);
+  welcomeWorkingDirectory = signal<string | null>(null);
   isEditingName = signal(false);
+
+  constructor() {
+    // Initialize welcomeWorkingDirectory from settings
+    effect(() => {
+      const defaultDir = this.settingsStore.defaultWorkingDirectory();
+      if (!this.welcomeWorkingDirectory()) {
+        this.welcomeWorkingDirectory.set(defaultDir || null);
+      }
+    });
+  }
+
+  /**
+   * Handle Ctrl+C keyboard shortcut to interrupt Claude
+   */
+  @HostListener('window:keydown', ['$event'])
+  handleKeyboardShortcut(event: KeyboardEvent): void {
+    // Check for Ctrl+C (Windows/Linux) or Cmd+C (macOS)
+    // Only intercept when NOT in a text field and instance is busy
+    if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+      const activeElement = document.activeElement;
+      const isInTextInput = activeElement?.tagName === 'INPUT' ||
+                           activeElement?.tagName === 'TEXTAREA' ||
+                           (activeElement as HTMLElement)?.isContentEditable;
+
+      // Don't intercept if user might be copying text
+      const hasSelection = window.getSelection()?.toString();
+
+      if (!isInTextInput && !hasSelection) {
+        const inst = this.instance();
+        if (inst && inst.status === 'busy') {
+          event.preventDefault();
+          this.onInterrupt();
+        }
+      }
+    }
+  }
 
   inputPlaceholder = computed(() => {
     const inst = this.instance();
@@ -515,11 +635,45 @@ export class InstanceDetailComponent {
     }
   }
 
+  onInterrupt(): void {
+    const inst = this.instance();
+    if (inst && inst.status === 'busy') {
+      this.store.interruptInstance(inst.id);
+    }
+  }
+
   onCreateChild(): void {
     const inst = this.instance();
     if (inst) {
       this.store.createChildInstance(inst.id);
     }
+  }
+
+  onWelcomeSendMessage(message: string): void {
+    const workingDir = this.welcomeWorkingDirectory() || '.';
+    this.store.createInstanceWithMessage(message, this.welcomePendingFiles(), workingDir);
+    this.welcomePendingFiles.set([]);
+    // Reset to default for next time
+    this.welcomeWorkingDirectory.set(this.settingsStore.defaultWorkingDirectory() || null);
+  }
+
+  async onSelectWelcomeFolder(): Promise<void> {
+    const folder = await this.ipc.selectFolder();
+    if (folder) {
+      this.welcomeWorkingDirectory.set(folder);
+    }
+  }
+
+  onWelcomeFilesDropped(files: File[]): void {
+    this.welcomePendingFiles.update((current) => [...current, ...files]);
+  }
+
+  onWelcomeImagesPasted(images: File[]): void {
+    this.welcomePendingFiles.update((current) => [...current, ...images]);
+  }
+
+  onWelcomeRemoveFile(file: File): void {
+    this.welcomePendingFiles.update((files) => files.filter((f) => f !== file));
   }
 
   onCreateNew(): void {

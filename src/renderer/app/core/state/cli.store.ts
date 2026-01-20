@@ -9,7 +9,7 @@ export interface CliInfo {
   name: string;
   command: string;
   displayName: string;
-  available: boolean;
+  installed: boolean;
   version?: string;
   error?: string;
 }
@@ -41,11 +41,11 @@ export class CliStore {
   readonly initialized = computed(() => this.state().initialized);
 
   readonly availableClis = computed(() =>
-    this.state().clis.filter((cli) => cli.available)
+    this.state().clis.filter((cli) => cli.installed)
   );
 
   readonly hasAnyCli = computed(() =>
-    this.state().clis.some((cli) => cli.available)
+    this.state().clis.some((cli) => cli.installed)
   );
 
   readonly selectedCliInfo = computed(() => {
@@ -57,7 +57,7 @@ export class CliStore {
     const { initialized, clis } = this.state();
     if (!initialized) return null;
 
-    const hasAny = clis.some((cli) => cli.available);
+    const hasAny = clis.some((cli) => cli.installed);
     if (hasAny) return null;
 
     return {
@@ -84,7 +84,7 @@ export class CliStore {
         const clis = response.data as CliInfo[];
 
         // Auto-select first available CLI
-        const firstAvailable = clis.find((cli) => cli.available);
+        const firstAvailable = clis.find((cli) => cli.installed);
 
         this.state.update((s) => ({
           ...s,
@@ -115,7 +115,7 @@ export class CliStore {
    */
   selectCli(cliType: CliType): void {
     const cli = this.state().clis.find((c) => c.name === cliType);
-    if (cli?.available) {
+    if (cli?.installed) {
       this.state.update((s) => ({ ...s, selectedCli: cliType }));
     }
   }

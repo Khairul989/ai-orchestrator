@@ -9,6 +9,9 @@ import type {
 } from '../../shared/types/provider.types';
 import { BaseProvider, ProviderFactory } from './provider-interface';
 import { ClaudeCliProvider } from './claude-cli-provider';
+import { CodexCliProvider } from './codex-cli-provider';
+import { GeminiCliProvider } from './gemini-cli-provider';
+import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 
 /**
  * Default provider configurations
@@ -70,9 +73,10 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
  */
 const PROVIDER_FACTORIES: Partial<Record<ProviderType, ProviderFactory>> = {
   'claude-cli': (config) => new ClaudeCliProvider(config),
+  'openai': (config) => new CodexCliProvider(config),
+  'google': (config) => new GeminiCliProvider(config),
   // Future providers will be added here:
   // 'anthropic-api': (config) => new AnthropicApiProvider(config),
-  // 'openai': (config) => new OpenAiProvider(config),
   // 'ollama': (config) => new OllamaProvider(config),
 };
 
@@ -216,6 +220,111 @@ export class ProviderRegistry {
   getDefaultProviderType(): ProviderType {
     // For now, always default to Claude CLI
     return 'claude-cli';
+  }
+
+  // ============ CLI-Specific Methods ============
+
+  /**
+   * Register CLI providers based on detected CLIs
+   */
+  async registerCliProviders(): Promise<void> {
+    const detection = CliDetectionService.getInstance();
+    const result = await detection.detectAll();
+
+    for (const cli of result.available) {
+      this.registerCliProvider(cli);
+    }
+  }
+
+  /**
+   * Register a single CLI provider
+   */
+  private registerCliProvider(cli: CliInfo): void {
+    const providerType = this.mapCliToProviderType(cli.name);
+    if (!providerType) return;
+
+    const config: ProviderConfig = {
+      type: providerType,
+      name: cli.displayName,
+      enabled: true,
+      options: {
+        command: cli.command,
+        path: cli.path,
+        version: cli.version,
+        capabilities: cli.capabilities,
+      },
+    };
+
+    this.configs.set(providerType, config);
+    // Clear status cache when registering new provider
+    this.statusCache.delete(providerType);
+    this.statusCacheTime.delete(providerType);
+  }
+
+  /**
+   * Map CLI name to provider type
+   */
+  private mapCliToProviderType(cliName: string): ProviderType | null {
+    const mapping: Record<string, ProviderType> = {
+      'claude': 'claude-cli',
+      'codex': 'openai',
+      'gemini': 'google',
+      'ollama': 'ollama',
+    };
+    return mapping[cliName] || null;
+  }
+
+  /**
+   * Get available CLI providers
+   */
+  async getAvailableCliProviders(): Promise<ProviderConfig[]> {
+    const detection = CliDetectionService.getInstance();
+    const result = await detection.detectAll();
+
+    return result.available.map((cli) => ({
+      type: this.mapCliToProviderType(cli.name) || ('claude-cli' as ProviderType),
+      name: cli.displayName,
+      enabled: true,
+      options: {
+        command: cli.command,
+        version: cli.version,
+        capabilities: cli.capabilities,
+      },
+    }));
+  }
+
+  /**
+   * Create a CLI provider by CLI name
+   */
+  createCliProvider(cliName: string, configOverrides?: Partial<ProviderConfig>): BaseProvider {
+    const providerType = this.mapCliToProviderType(cliName);
+    if (!providerType) {
+      throw new Error(`Unknown CLI: ${cliName}`);
+    }
+    return this.createProvider(providerType, configOverrides);
+  }
+
+  /**
+   * Map capability strings to ProviderCapabilities
+   */
+  mapCapabilitiesToProvider(caps: string[]): {
+    streaming: boolean;
+    toolExecution: boolean;
+    multiTurn: boolean;
+    vision: boolean;
+    fileAttachments: boolean;
+    functionCalling: boolean;
+    builtInCodeTools: boolean;
+  } {
+    return {
+      streaming: caps.includes('streaming'),
+      toolExecution: caps.includes('tool-use'),
+      multiTurn: caps.includes('multi-turn'),
+      vision: caps.includes('vision'),
+      fileAttachments: caps.includes('file-access'),
+      functionCalling: caps.includes('tool-use'),
+      builtInCodeTools: caps.includes('file-access') || caps.includes('shell'),
+    };
   }
 }
 

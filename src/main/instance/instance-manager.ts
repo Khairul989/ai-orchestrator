@@ -360,7 +360,7 @@ export class InstanceManager extends EventEmitter {
         this.emit('instance:output', { instanceId, message: orchestrationMessage });
 
         // Send the original orchestrator response to the Claude CLI (it expects the structured format)
-        await adapter.sendMessage(response);
+        await adapter.sendInput(response);
       }
     });
   }
@@ -454,7 +454,25 @@ export class InstanceManager extends EventEmitter {
 
       // Send initial prompt if provided
       if (config.initialPrompt) {
-        await adapter.sendMessage(config.initialPrompt, config.attachments);
+        // Add user message to output buffer so it appears in the conversation
+        // Note: We don't emit 'instance:output' here because the outputBuffer
+        // will be included in the 'instance:created' event below
+        const userMessage = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'user' as const,
+          content: config.initialPrompt,
+          attachments: config.attachments?.map(a => ({
+            name: a.name,
+            type: a.type,
+            size: a.size,
+            data: a.data,
+          })),
+        };
+        this.addToOutputBuffer(instance, userMessage);
+
+        // Send to adapter
+        await adapter.sendInput(config.initialPrompt, config.attachments);
       }
     } catch (error) {
       instance.status = 'error';
@@ -547,7 +565,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     console.log('InstanceManager: Sending message to adapter...');
-    await adapter.sendMessage(finalMessage, attachments);
+    await adapter.sendInput(finalMessage, attachments);
     console.log('InstanceManager: Message sent to adapter');
   }
 
@@ -620,10 +638,20 @@ export class InstanceManager extends EventEmitter {
       await oldAdapter.terminate(true);
     }
 
-    // Create new adapter
+    // Generate a new session ID - Claude CLI doesn't allow reusing session IDs
+    const newSessionId = generateId();
+    instance.sessionId = newSessionId;
+
+    // Clear the output buffer on restart
+    instance.outputBuffer = [];
+
+    // Reset first message tracking so orchestration prompt gets injected again
+    this.hasReceivedFirstMessage.delete(instanceId);
+
+    // Create new adapter with new session ID
     const adapter = new ClaudeCliAdapter({
       workingDirectory: instance.workingDirectory,
-      sessionId: instance.sessionId,
+      sessionId: newSessionId,
       yoloMode: instance.yoloMode,
     });
 
@@ -676,6 +704,45 @@ export class InstanceManager extends EventEmitter {
 
     // Emit state update so UI reflects the change
     this.queueUpdate(instanceId, instance.status, instance.contextUsage);
+  }
+
+  /**
+   * Interrupt an instance (like Ctrl+C)
+   * Sends SIGINT to pause Claude's current operation without terminating
+   */
+  interruptInstance(instanceId: string): boolean {
+    const adapter = this.adapters.get(instanceId);
+    const instance = this.instances.get(instanceId);
+
+    if (!adapter || !instance) {
+      console.warn(`Cannot interrupt instance ${instanceId}: not found`);
+      return false;
+    }
+
+    if (instance.status !== 'busy') {
+      console.warn(`Cannot interrupt instance ${instanceId}: not busy (status: ${instance.status})`);
+      return false;
+    }
+
+    const success = adapter.interrupt();
+    if (success) {
+      // Add a system message to indicate interruption
+      const message = {
+        id: generateId(),
+        type: 'system' as const,
+        content: '⚠️ Interrupted by user (Ctrl+C)',
+        timestamp: Date.now(),
+      };
+      this.addToOutputBuffer(instance, message);
+      this.emit('instance:output', { instanceId, message });
+
+      // Update status to idle (Claude will be waiting for input after interrupt)
+      instance.status = 'idle';
+      instance.lastActivity = Date.now();
+      this.queueUpdate(instanceId, 'idle', instance.contextUsage);
+    }
+
+    return success;
   }
 
   /**

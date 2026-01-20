@@ -18,3 +18,5 @@ export * from './model-discovery.types';
 export * from './memory-r1.types';
 export * from './unified-memory.types';
 export * from './debate.types';
+export * from './unified-cli-response';
+export * from './verification-ui.types';

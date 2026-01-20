@@ -17,7 +17,6 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { SlicePipe } from '@angular/common';
 
 /** Task outcome from self-improvement tracking */
 export interface TaskOutcome {
@@ -110,7 +109,6 @@ export interface TrainingStats {
 @Component({
   selector: 'app-grpo-dashboard',
   standalone: true,
-  imports: [SlicePipe],
   template: `
     <div class="dashboard-container">
       <!-- Header -->

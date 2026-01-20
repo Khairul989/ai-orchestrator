@@ -15,11 +15,11 @@ import {
   AgreementPoint,
   DisagreementPoint,
   UniqueInsight,
-  DebateRound,
   ResponseRanking,
   PersonalityType,
   createDefaultVerificationConfig,
 } from '../../shared/types/verification.types';
+import type { DebateSessionRound, DebateRoundType, DebateContribution } from '../../shared/types/debate.types';
 import { PERSONALITY_PROMPTS, selectPersonalities } from './personalities';
 
 export class MultiVerifyCoordinator extends EventEmitter {
@@ -118,7 +118,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
     // Apply synthesis strategy
     let synthesizedResponse: string;
     let synthesisConfidence: number;
-    let debateRounds: DebateRound[] | undefined;
+    let debateRounds: DebateSessionRound[] | undefined;
 
     const analysis = await this.analyzeResponses(responses, config);
 
@@ -682,9 +682,9 @@ Provide your synthesized response:`;
     request: VerificationRequest,
     initialResponses: AgentResponse[],
     analysis: VerificationAnalysis
-  ): Promise<{ synthesizedResponse: string; confidence: number; rounds: DebateRound[] }> {
+  ): Promise<{ synthesizedResponse: string; confidence: number; rounds: DebateSessionRound[] }> {
     const maxRounds = request.config.maxDebateRounds || 3;
-    const rounds: DebateRound[] = [];
+    const rounds: DebateSessionRound[] = [];
 
     let currentAnalysis = analysis;
 
@@ -694,7 +694,8 @@ Provide your synthesized response:`;
         break;
       }
 
-      const debateRound = await this.runDebateRound(request, initialResponses, currentAnalysis, round);
+      const startTime = Date.now();
+      const debateRound = await this.runDebateRound(request, initialResponses, currentAnalysis, round, startTime);
 
       rounds.push(debateRound);
 
@@ -720,31 +721,36 @@ Provide your synthesized response:`;
     request: VerificationRequest,
     responses: AgentResponse[],
     analysis: VerificationAnalysis,
-    roundNumber: number
-  ): Promise<DebateRound> {
-    const exchanges: DebateRound['exchanges'] = [];
+    roundNumber: number,
+    startTime: number
+  ): Promise<DebateSessionRound> {
+    const contributions: DebateSessionRound['contributions'] = [];
 
     // Focus debate on disagreements
     for (const disagreement of analysis.disagreements.slice(0, 2)) {
       for (const response of responses) {
-        const exchange = {
+        const contribution = {
           agentId: response.agentId,
-          argument: `Regarding "${disagreement.topic}": ${
+          content: `Regarding "${disagreement.topic}": ${
             disagreement.positions.find((p) => p.agentId === response.agentId)?.position || 'No position'
           }`,
-          positionChange: false,
+          confidence: response.confidence,
+          reasoning: response.reasoning || '',
         };
-        exchanges.push(exchange);
+        contributions.push(contribution);
       }
     }
 
     // Calculate convergence
-    const convergenceScore = analysis.consensusStrength;
+    const consensusScore = analysis.consensusStrength;
 
     return {
-      round: roundNumber,
-      exchanges,
-      convergenceScore,
+      roundNumber,
+      type: roundNumber === 1 ? 'initial' : roundNumber === (request.config.maxDebateRounds || 3) ? 'synthesis' : 'critique',
+      contributions,
+      consensusScore,
+      timestamp: Date.now(),
+      durationMs: Date.now() - startTime,
     };
   }
 

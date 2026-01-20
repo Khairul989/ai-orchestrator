@@ -4,6 +4,7 @@
 
 import { Component, inject, OnInit, OnDestroy, signal, HostListener } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -38,6 +39,14 @@ import { CommandPaletteComponent } from '../commands/command-palette.component';
           <div class="header-row">
             <h1 class="app-title">Claude Orchestrator</h1>
             <div class="header-actions">
+              <button class="btn-header-icon" (click)="navigateToVerification()" title="Multi-Agent Verification">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+              </button>
               <button class="btn-header-icon" (click)="showHistory.set(true)" title="History">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
@@ -319,13 +328,16 @@ import { CommandPaletteComponent } from '../commands/command-palette.component';
     .main-content {
       flex: 1;
       min-width: 0;
+      min-height: 0;
       height: 100%;
       display: flex;
+      overflow: hidden;
       background: var(--bg-primary);
     }
   `],
 })
 export class DashboardComponent implements OnInit, OnDestroy {
+  private router = inject(Router);
   store = inject(InstanceStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
@@ -504,6 +516,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   closeAllInstances(): void {
     this.store.terminateAllInstances();
+  }
+
+  navigateToVerification(): void {
+    this.router.navigate(['/verification']);
   }
 
   onRetryCliDetection(): void {

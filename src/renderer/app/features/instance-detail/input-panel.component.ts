@@ -9,6 +9,8 @@ import {
   signal,
   computed,
   inject,
+  effect,
+  OnDestroy,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommandStore } from '../../core/state/command.store';
@@ -20,20 +22,38 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
   template: `
     <div class="input-panel">
       <!-- Pending files preview -->
-      @if (pendingFiles() && pendingFiles()!.length > 0) {
+      @if (pendingFilePreviews().length > 0) {
         <div class="pending-files">
-          @for (file of pendingFiles(); track file.name) {
-            <div class="file-chip">
-              <span class="file-icon">{{ getFileIcon(file) }}</span>
-              <span class="file-name">{{ file.name }}</span>
-              <button
-                class="file-remove"
-                (click)="removeFile.emit(file)"
-                title="Remove file"
-              >
-                ×
-              </button>
-            </div>
+          @for (preview of pendingFilePreviews(); track preview.file.name) {
+            @if (preview.isImage) {
+              <div class="file-preview-card">
+                <div class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
+                </div>
+                <div class="preview-info">
+                  <span class="file-name">{{ preview.file.name }}</span>
+                  <span class="file-size">{{ preview.size }}</span>
+                </div>
+                <button
+                  class="file-remove"
+                  (click)="onRemoveFile(preview.file)"
+                  title="Remove file"
+                >
+                  ×
+                </button>
+              </div>
+            } @else {
+              <div class="file-chip">
+                <span class="file-icon">{{ preview.icon }}</span>
+                <span class="file-name">{{ preview.file.name }}</span>
+                <button
+                  class="file-remove"
+                  (click)="onRemoveFile(preview.file)"
+                  title="Remove file"
+                >
+                  ×
+                </button>
+              </div>
+            }
           }
         </div>
       }
@@ -80,7 +100,11 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
 
       <div class="input-hints">
         <span class="hint">Press Enter to send, Shift+Enter for new line</span>
-        <span class="hint">Type / for commands, Cmd+K for palette</span>
+        @if (disabled()) {
+          <span class="hint hint-interrupt">Press Ctrl+C to interrupt</span>
+        } @else {
+          <span class="hint">Type / for commands, Cmd+K for palette</span>
+        }
       </div>
     </div>
   `,
@@ -110,6 +134,49 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
       font-size: 12px;
     }
 
+    .file-preview-card {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      padding: 6px 8px;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+
+    .preview-thumbnail {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      flex-shrink: 0;
+      background-color: var(--bg-secondary);
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+    }
+
+    .preview-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .preview-info .file-name {
+      font-size: 12px;
+      font-weight: 500;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-size {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
     .file-icon {
       font-size: 14px;
     }
@@ -122,15 +189,17 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
     }
 
     .file-remove {
-      width: 18px;
-      height: 18px;
+      width: 20px;
+      height: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       border-radius: 50%;
       font-size: 14px;
       color: var(--text-muted);
+      background: transparent;
       transition: all var(--transition-fast);
+      flex-shrink: 0;
 
       &:hover {
         background: var(--error-bg);
@@ -197,6 +266,11 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
       color: var(--text-muted);
     }
 
+    .hint-interrupt {
+      color: var(--warning-color, #d97706);
+      font-weight: 500;
+    }
+
     .command-suggestions {
       position: absolute;
       bottom: 100%;
@@ -255,13 +329,34 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class InputPanelComponent {
+export class InputPanelComponent implements OnDestroy {
   private commandStore = inject(CommandStore);
+  private filePreviewUrls = new Map<File, string>();
 
   instanceId = input.required<string>();
   disabled = input<boolean>(false);
   placeholder = input<string>('Send a message...');
   pendingFiles = input<File[]>([]);
+
+  // Computed preview data for pending files
+  pendingFilePreviews = computed(() => {
+    const files = this.pendingFiles();
+    return files.map(file => ({
+      file,
+      isImage: file.type.startsWith('image/'),
+      previewUrl: this.getOrCreatePreviewUrl(file),
+      size: this.formatFileSize(file.size),
+      icon: this.getFileIcon(file),
+    }));
+  });
+
+  private getOrCreatePreviewUrl(file: File): string {
+    if (!this.filePreviewUrls.has(file)) {
+      const url = URL.createObjectURL(file);
+      this.filePreviewUrls.set(file, url);
+    }
+    return this.filePreviewUrls.get(file)!;
+  }
 
   sendMessage = output<string>();
   executeCommand = output<{ commandId: string; args: string[] }>();
@@ -289,10 +384,32 @@ export class InputPanelComponent {
   constructor() {
     // Load commands on init
     this.commandStore.loadCommands();
+
+    // Clean up preview URLs when files change
+    effect(() => {
+      const files = this.pendingFiles();
+      const currentFiles = new Set(files);
+
+      // Revoke URLs for removed files
+      for (const [file, url] of this.filePreviewUrls.entries()) {
+        if (!currentFiles.has(file)) {
+          URL.revokeObjectURL(url);
+          this.filePreviewUrls.delete(file);
+        }
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    // Clean up all preview URLs
+    for (const url of this.filePreviewUrls.values()) {
+      URL.revokeObjectURL(url);
+    }
+    this.filePreviewUrls.clear();
   }
 
   canSend(): boolean {
-    return this.message().trim().length > 0 || (this.pendingFiles()?.length ?? 0) > 0;
+    return this.message().trim().length > 0 || this.pendingFilePreviews().length > 0;
   }
 
   onInput(event: Event): void {
@@ -413,5 +530,21 @@ export class InputPanelComponent {
     if (file.type.includes('text')) return '📝';
     if (file.type.includes('json') || file.type.includes('javascript')) return '📋';
     return '📎';
+  }
+
+  formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  onRemoveFile(file: File): void {
+    // Revoke the preview URL
+    const url = this.filePreviewUrls.get(file);
+    if (url) {
+      URL.revokeObjectURL(url);
+      this.filePreviewUrls.delete(file);
+    }
+    this.removeFile.emit(file);
   }
 }

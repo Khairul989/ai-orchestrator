@@ -28,7 +28,7 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       [style.padding-left.px]="12 + depth() * 20"
       (click)="select.emit(instance().id)"
     >
-      <!-- Expand/collapse button for parents, or child indicator -->
+      <!-- Expand/collapse button for parents, child indicator, or placeholder -->
       @if (hasChildren()) {
         <button
           class="expand-btn"
@@ -40,6 +40,9 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
         </button>
       } @else if (depth() > 0) {
         <span class="child-connector">└</span>
+      } @else {
+        <!-- Placeholder to reserve space for expand button on root instances -->
+        <span class="expand-placeholder"></span>
       }
 
       <app-status-indicator [status]="instance().status" />
@@ -136,6 +139,13 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       font-size: 14px;
       width: 18px;
       text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* Placeholder for consistent alignment */
+    .expand-placeholder {
+      width: 18px;
+      height: 18px;
       flex-shrink: 0;
     }
 

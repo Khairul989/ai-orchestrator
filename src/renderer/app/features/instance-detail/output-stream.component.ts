@@ -1,14 +1,19 @@
 /**
  * Output Stream Component - Displays Claude's output messages with rich markdown rendering
+ *
+ * Groups consecutive assistant "thinking" messages into a collapsible section,
+ * similar to claude.ai's "Thought process" UI.
  */
 
 import {
   Component,
   input,
+  computed,
   ElementRef,
   viewChild,
   effect,
   inject,
+  signal,
   ChangeDetectionStrategy,
   afterNextRender,
 } from '@angular/core';
@@ -16,38 +21,79 @@ import { DatePipe } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
+import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
+
+/**
+ * Represents a grouped display item - either a single message or a group of thinking messages
+ */
+interface DisplayItem {
+  type: 'message' | 'thought-group';
+  message?: OutputMessage;
+  thoughts?: string[];
+  response?: OutputMessage;
+  timestamp?: number;
+}
 
 @Component({
   selector: 'app-output-stream',
   standalone: true,
-  imports: [DatePipe, MessageAttachmentsComponent],
+  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent],
   template: `
     <div class="output-stream" #container>
-      @for (message of messages(); track message.id) {
-        @if (hasContent(message)) {
-          <div class="message" [class]="'message-' + message.type">
-            <div class="message-header">
-              <span class="message-type">{{ formatType(message.type) }}</span>
-              <span class="message-time">
-                {{ message.timestamp | date:'HH:mm:ss' }}
-              </span>
-            </div>
-            <div class="message-content">
-              @if (message.type === 'tool_use' || message.type === 'tool_result') {
-                <div class="code-block-wrapper">
-                  <div class="code-block-header">
-                    <span class="code-language">{{ getToolName(message) }}</span>
-                  </div>
-                  <pre class="hljs"><code>{{ formatContent(message) }}</code></pre>
+      @for (item of displayItems(); track $index) {
+        @if (item.type === 'thought-group') {
+          <!-- Thought group with collapsible thinking section -->
+          <div class="thought-group">
+            @if (item.thoughts && item.thoughts.length > 0) {
+              <app-thought-process
+                [thoughts]="item.thoughts"
+                [label]="getThoughtLabel(item.thoughts)"
+              />
+            }
+            @if (item.response) {
+              <div class="message message-assistant">
+                <div class="message-header">
+                  <span class="message-type">Claude</span>
+                  <span class="message-time">
+                    {{ item.response.timestamp | date:'HH:mm:ss' }}
+                  </span>
                 </div>
-              } @else {
-                <div class="markdown-content" [innerHTML]="renderMarkdown(message.content)"></div>
-              }
-              @if (message.attachments && message.attachments.length > 0) {
-                <app-message-attachments [attachments]="message.attachments" />
-              }
-            </div>
+                <div class="message-content">
+                  <div class="markdown-content" [innerHTML]="renderMarkdown(item.response.content)"></div>
+                  @if (item.response.attachments && item.response.attachments.length > 0) {
+                    <app-message-attachments [attachments]="item.response.attachments" />
+                  }
+                </div>
+              </div>
+            }
           </div>
+        } @else if (item.message) {
+          <!-- Regular message -->
+          @if (hasContent(item.message)) {
+            <div class="message" [class]="'message-' + item.message.type">
+              <div class="message-header">
+                <span class="message-type">{{ formatType(item.message.type) }}</span>
+                <span class="message-time">
+                  {{ item.message.timestamp | date:'HH:mm:ss' }}
+                </span>
+              </div>
+              <div class="message-content">
+                @if (item.message.type === 'tool_use' || item.message.type === 'tool_result') {
+                  <div class="code-block-wrapper">
+                    <div class="code-block-header">
+                      <span class="code-language">{{ getToolName(item.message) }}</span>
+                    </div>
+                    <pre class="hljs"><code>{{ formatContent(item.message) }}</code></pre>
+                  </div>
+                } @else {
+                  <div class="markdown-content" [innerHTML]="renderMarkdown(item.message.content)"></div>
+                }
+                @if (item.message.attachments && item.message.attachments.length > 0) {
+                  <app-message-attachments [attachments]="item.message.attachments" />
+                }
+              </div>
+            </div>
+          }
         }
       } @empty {
         <div class="empty-stream">
@@ -165,6 +211,17 @@ import { MessageAttachmentsComponent } from '../../shared/components/message-att
       color: var(--text-muted);
       margin-top: var(--spacing-xs);
     }
+
+    .thought-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+      margin-right: var(--spacing-xl);
+    }
+
+    .thought-group .message-assistant {
+      margin-right: 0;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -175,6 +232,75 @@ export class OutputStreamComponent {
   container = viewChild<ElementRef>('container');
 
   private markdownService = inject(MarkdownService);
+
+  /**
+   * Groups consecutive assistant messages into thought-groups.
+   * Shows intermediate messages as "thinking" and the last one as the response.
+   */
+  displayItems = computed<DisplayItem[]>(() => {
+    const messages = this.messages();
+    const items: DisplayItem[] = [];
+
+    let i = 0;
+    while (i < messages.length) {
+      const msg = messages[i];
+
+      // If this is an assistant message, check if it's part of a sequence
+      if (msg.type === 'assistant') {
+        const thoughts: string[] = [];
+        let j = i;
+
+        // Collect consecutive assistant messages (also include tool_use/tool_result in the same "turn")
+        while (j < messages.length) {
+          const current = messages[j];
+
+          if (current.type === 'assistant') {
+            // This is a thinking/response message
+            j++;
+          } else if (current.type === 'tool_use' || current.type === 'tool_result') {
+            // Tool messages are part of the same turn, but we display them separately
+            break;
+          } else {
+            // User or other message type - end of this assistant turn
+            break;
+          }
+        }
+
+        // Get all assistant messages in this sequence
+        const assistantMessages = messages.slice(i, j).filter(m => m.type === 'assistant');
+
+        if (assistantMessages.length > 1) {
+          // Multiple assistant messages - group as thoughts + response
+          const thoughtMessages = assistantMessages.slice(0, -1);
+          const responseMessage = assistantMessages[assistantMessages.length - 1];
+
+          items.push({
+            type: 'thought-group',
+            thoughts: thoughtMessages.map(m => m.content).filter(c => c.trim()),
+            response: responseMessage,
+            timestamp: responseMessage.timestamp,
+          });
+        } else if (assistantMessages.length === 1) {
+          // Single assistant message - just show it normally
+          items.push({
+            type: 'message',
+            message: assistantMessages[0],
+          });
+        }
+
+        i = j;
+      } else {
+        // Non-assistant message - show as-is
+        items.push({
+          type: 'message',
+          message: msg,
+        });
+        i++;
+      }
+    }
+
+    return items;
+  });
 
   constructor() {
     // Auto-scroll to bottom when new messages arrive
@@ -251,5 +377,22 @@ export class OutputStreamComponent {
 
   renderMarkdown(content: string): ReturnType<MarkdownService['render']> {
     return this.markdownService.render(content);
+  }
+
+  /**
+   * Generate a label for the thought process section
+   */
+  getThoughtLabel(thoughts: string[]): string {
+    if (thoughts.length === 0) return 'Thought process';
+
+    // Try to create a short summary from the first thought
+    const firstThought = thoughts[0];
+    const firstSentence = firstThought.split(/[.!?\n]/)[0].trim();
+
+    if (firstSentence.length > 60) {
+      return firstSentence.slice(0, 57) + '...';
+    }
+
+    return firstSentence || 'Thought process';
   }
 }

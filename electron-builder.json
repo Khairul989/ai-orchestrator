@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.claude.orchestrator",
   "productName": "Claude Orchestrator",
+  "npmRebuild": false,
   "directories": {
     "output": "release",
     "buildResources": "build"
@@ -12,14 +13,11 @@
   ],
   "mac": {
     "category": "public.app-category.developer-tools",
+    "icon": "build/icon.icns",
     "target": [
       {
         "target": "dmg",
-        "arch": ["x64", "arm64"]
-      },
-      {
-        "target": "zip",
-        "arch": ["x64", "arm64"]
+        "arch": ["arm64"]
       }
     ],
     "darkModeSupport": true

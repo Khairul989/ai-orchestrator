@@ -17,7 +17,6 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { SlicePipe } from '@angular/common';
 import type {
   DebateResult,
   ActiveDebate,
@@ -33,7 +32,6 @@ import type {
 @Component({
   selector: 'app-debate-visualization',
   standalone: true,
-  imports: [SlicePipe],
   template: `
     <div class="debate-container">
       <!-- Header -->

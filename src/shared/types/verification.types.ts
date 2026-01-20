@@ -3,6 +3,8 @@
  * Based on validated research: arXiv:2502.20379 (MAV), DelphiAgent, Byzantine FT
  */
 
+import type { DebateSessionRound } from './debate.types';
+
 export type SynthesisStrategy =
   | 'consensus' // Use points N-1 agents agree on
   | 'best-of' // Rank and select highest quality
@@ -149,9 +151,12 @@ export interface VerificationResult {
   completedAt: number;
 
   // Audit trail
-  debateRounds?: DebateRound[];
+  debateRounds?: DebateSessionRound[];
 }
 
+/**
+ * @deprecated Use DebateSessionRound from debate.types.ts instead
+ */
 export interface DebateRound {
   round: number;
   exchanges: {

@@ -32,8 +32,17 @@ import {
     </div>
   `,
   styles: [`
+    :host {
+      display: contents;
+    }
+
     .drop-zone {
       position: relative;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
     }
 
     .drop-overlay {

@@ -94,6 +94,18 @@ export class ElectronIpcService {
   }
 
   /**
+   * Create a new instance and immediately send a message
+   */
+  async createInstanceWithMessage(config: {
+    workingDirectory: string;
+    message: string;
+    attachments?: any[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.createInstanceWithMessage(config);
+  }
+
+  /**
    * Send input to an instance
    */
   async sendInput(instanceId: string, message: string, attachments?: any[]) {
@@ -107,6 +119,15 @@ export class ElectronIpcService {
   async terminateInstance(instanceId: string, graceful = true) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.terminateInstance({ instanceId, graceful });
+  }
+
+  /**
+   * Interrupt an instance (Ctrl+C equivalent)
+   * Sends SIGINT to pause current operation without terminating
+   */
+  async interruptInstance(instanceId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.interruptInstance({ instanceId });
   }
 
   /**

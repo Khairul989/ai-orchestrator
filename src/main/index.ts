@@ -70,6 +70,16 @@ let orchestratorApp: ClaudeOrchestratorApp | null = null;
 
 // App ready handler
 app.whenReady().then(async () => {
+  // Set dock icon on macOS (only in development mode - packaged app uses icon from Info.plist)
+  if (process.platform === 'darwin' && app.dock && !app.isPackaged) {
+    try {
+      const iconPath = path.join(__dirname, '../../build/icon.png');
+      app.dock.setIcon(iconPath);
+    } catch (e) {
+      // Icon not found, ignore - packaged app uses Info.plist icon
+    }
+  }
+
   orchestratorApp = new ClaudeOrchestratorApp();
   await orchestratorApp.initialize();
 

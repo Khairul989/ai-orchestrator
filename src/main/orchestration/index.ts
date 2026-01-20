@@ -59,3 +59,11 @@ export type {
 
 // Multi-verification
 export { MultiVerifyCoordinator, getMultiVerifyCoordinator } from './multi-verify-coordinator';
+
+// CLI verification extension
+export {
+  CliVerificationCoordinator,
+  getCliVerificationCoordinator,
+  CliVerificationConfig,
+  AgentConfig,
+} from './cli-verification-extension';

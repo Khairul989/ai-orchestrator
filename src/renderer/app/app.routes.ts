@@ -137,6 +137,24 @@ export const routes: Routes = [
       ),
   },
 
+  // Multi-Agent Verification
+  {
+    path: 'verification',
+    loadComponent: () =>
+      import('./features/verification/verification-dashboard.component').then(
+        (m) => m.VerificationDashboardComponent
+      ),
+  },
+
+  // Verification: CLI Settings
+  {
+    path: 'verification/settings',
+    loadComponent: () =>
+      import('./features/verification/cli-settings-panel.component').then(
+        (m) => m.CliSettingsPanelComponent
+      ),
+  },
+
   // Catch-all redirect to dashboard
   {
     path: '**',

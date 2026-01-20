@@ -12,6 +12,7 @@ import type {
   InstanceCreatePayload,
   InstanceSendInputPayload,
   InstanceTerminatePayload,
+  InstanceInterruptPayload,
   InstanceRestartPayload,
   InstanceRenamePayload,
   SettingsSetPayload,
@@ -118,6 +119,7 @@ import { getBashValidator } from '../security/bash-validator';
 import { getTaskManager } from '../orchestration/task-manager';
 import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
 import { registerVerificationHandlers } from './verification-ipc-handler';
+import { registerCliVerificationHandlers } from './cli-verification-ipc-handler';
 import { registerLearningHandlers } from './learning-ipc-handler';
 import { registerMemoryHandlers } from './memory-ipc-handler';
 import { registerSpecialistHandlers } from './specialist-ipc-handler';
@@ -308,6 +310,12 @@ export class IpcMainHandler {
     // Verification handlers (Worktree, Verification, Supervision)
     registerVerificationHandlers();
 
+    // CLI Verification handlers (Multi-CLI detection and verification)
+    const mainWindow = this.windowManager.getMainWindow();
+    if (mainWindow) {
+      registerCliVerificationHandlers(mainWindow);
+    }
+
     // Learning handlers (RLM Context, Self-Improvement, Model Discovery)
     registerLearningHandlers();
 
@@ -375,6 +383,50 @@ export class IpcMainHandler {
       }
     );
 
+    // Create instance with initial message
+    ipcMain.handle(
+      IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE,
+      async (event: IpcMainInvokeEvent, payload: {
+        workingDirectory: string;
+        message: string;
+        attachments?: any[];
+      }): Promise<IpcResponse> => {
+        try {
+          // Use default working directory from settings if not provided or is just '.'
+          let workingDirectory = payload.workingDirectory;
+          if (!workingDirectory || workingDirectory === '.') {
+            const settings = getSettingsManager();
+            const defaultDir = settings.get('defaultWorkingDirectory');
+            if (defaultDir) {
+              workingDirectory = defaultDir;
+            } else {
+              workingDirectory = process.cwd();
+            }
+          }
+
+          const instance = await this.instanceManager.createInstance({
+            workingDirectory,
+            initialPrompt: payload.message,
+            attachments: payload.attachments,
+          });
+
+          return {
+            success: true,
+            data: this.serializeInstance(instance),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'CREATE_WITH_MESSAGE_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+
     // Send input to instance
     ipcMain.handle(
       IPC_CHANNELS.INSTANCE_SEND_INPUT,
@@ -422,6 +474,30 @@ export class IpcMainHandler {
             success: false,
             error: {
               code: 'TERMINATE_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+
+    // Interrupt instance (Ctrl+C equivalent)
+    ipcMain.handle(
+      IPC_CHANNELS.INSTANCE_INTERRUPT,
+      async (event: IpcMainInvokeEvent, payload: InstanceInterruptPayload): Promise<IpcResponse> => {
+        try {
+          const success = this.instanceManager.interruptInstance(payload.instanceId);
+
+          return {
+            success,
+            data: { interrupted: success },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'INTERRUPT_FAILED',
               message: (error as Error).message,
               timestamp: Date.now(),
             },
