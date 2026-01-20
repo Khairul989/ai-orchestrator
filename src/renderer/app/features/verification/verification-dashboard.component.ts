@@ -150,6 +150,7 @@ import type { SynthesisStrategy } from '../../../../shared/types/verification.ty
                             name="strategy"
                             [value]="strategy.value"
                             [(ngModel)]="selectedStrategy"
+                            (ngModelChange)="onStrategyChange($event)"
                             class="visually-hidden"
                           />
                           <span class="strategy-name">{{ strategy.label }}</span>
@@ -847,6 +848,12 @@ export class VerificationDashboardComponent implements OnInit, OnDestroy {
     if (!this.cliStore.initialized()) {
       this.cliStore.initialize();
     }
+
+    // Load saved strategy from store config
+    const config = this.store.defaultConfig();
+    if (config.synthesisStrategy) {
+      this.selectedStrategy = config.synthesisStrategy;
+    }
   }
 
   ngOnDestroy(): void {
@@ -922,6 +929,11 @@ export class VerificationDashboardComponent implements OnInit, OnDestroy {
       this.validSelectedAgents().length >= 2 &&
       !this.store.isRunning()
     );
+  }
+
+  onStrategyChange(strategy: SynthesisStrategy): void {
+    // Persist to localStorage immediately when user changes strategy
+    this.store.setDefaultConfig({ synthesisStrategy: strategy });
   }
 
   async startVerification(): Promise<void> {
