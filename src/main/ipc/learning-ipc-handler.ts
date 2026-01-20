@@ -136,6 +136,76 @@ function registerRLMHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.RLM_CONFIGURE, (_event, config: Partial<RLMConfig>): void => {
     rlm.configure(config);
   });
+
+  // ============ RLM Analytics Handlers ============
+
+  // Get token savings history
+  ipcMain.handle('rlm:get-token-savings-history', (_event, payload: { range: string }) => {
+    try {
+      const days = payload.range === '7d' ? 7 : payload.range === '90d' ? 90 : 30;
+      const history = rlm.getTokenSavingsHistory(days);
+      return { success: true, data: history };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Get query statistics
+  ipcMain.handle('rlm:get-query-stats', (_event, payload: { range: string }) => {
+    try {
+      const days = payload.range === '7d' ? 7 : payload.range === '90d' ? 90 : 30;
+      const stats = rlm.getQueryStats(days);
+      return { success: true, data: stats };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Get storage statistics
+  ipcMain.handle('rlm:get-storage-stats', () => {
+    try {
+      const stats = rlm.getStorageStats();
+      return { success: true, data: stats };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // ============ RLM Export/Import Handlers ============
+
+  // Export store to JSON
+  ipcMain.handle('rlm:export-store', (_event, storeId: string) => {
+    try {
+      const data = rlm.exportStore(storeId);
+      if (!data) {
+        return { success: false, error: 'Store not found' };
+      }
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Import store from JSON
+  ipcMain.handle('rlm:import-store', (_event, payload: {
+    data: ReturnType<typeof rlm.exportStore>;
+    options?: {
+      newId?: boolean;
+      merge?: boolean;
+      targetStoreId?: string;
+      instanceId?: string;
+    };
+  }) => {
+    try {
+      if (!payload.data) {
+        return { success: false, error: 'Invalid import data' };
+      }
+      const storeId = rlm.importStore(payload.data, payload.options);
+      return { success: true, data: { storeId } };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
 }
 
 // ============ Self-Improvement Handlers ============

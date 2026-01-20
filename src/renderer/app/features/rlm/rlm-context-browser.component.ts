@@ -15,6 +15,7 @@ import {
   signal,
   computed,
   ChangeDetectionStrategy,
+  HostListener,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import type {
@@ -26,6 +27,18 @@ import type {
   RLMStoreStats,
   RLMSessionStats,
 } from '../../../../shared/types/rlm.types';
+
+/** Query result interface */
+interface QueryResult {
+  id: string;
+  type: QueryType;
+  content: string;
+  tokens: number;
+  sections: string[];
+  timestamp: number;
+  duration: number;
+  error?: string;
+}
 
 @Component({
   selector: 'app-rlm-context-browser',
@@ -251,13 +264,101 @@ import type {
 
             <button
               class="execute-btn"
-              [disabled]="!session() || !canExecuteQuery()"
+              [disabled]="!session() || !canExecuteQuery() || isQuerying()"
               (click)="executeQuery()"
             >
-              Execute Query
+              @if (isQuerying()) {
+                <span class="spinner">⟳</span> Querying...
+              } @else {
+                Execute Query
+              }
             </button>
           </div>
+
+          <!-- Error Banner -->
+          @if (queryError()) {
+            <div class="error-banner">
+              <span class="error-icon">⚠️</span>
+              <span class="error-text">{{ queryError() }}</span>
+              <button class="close-error-btn" (click)="queryError.set(null)">✕</button>
+            </div>
+          }
         </div>
+
+        <!-- Query Results Section -->
+        @if (queryResults().length > 0) {
+          <div class="query-results-section">
+            <div class="results-header">
+              <span class="results-title">Query Results</span>
+              <span class="results-count">{{ queryResults().length }} results</span>
+              <button class="clear-results-btn" (click)="clearResults()">Clear</button>
+            </div>
+            <div class="results-list">
+              @for (result of queryResults(); track result.id) {
+                <div
+                  class="result-item"
+                  [class.active]="activeQueryResult()?.id === result.id"
+                  [class.error]="result.error"
+                  (click)="selectResult(result)"
+                >
+                  <div class="result-header">
+                    <span class="result-type">{{ getQueryTypeIcon(result.type) }} {{ result.type }}</span>
+                    <span class="result-time">{{ formatRelativeTime(result.timestamp) }}</span>
+                  </div>
+                  <div class="result-preview">{{ truncateContent(result.error || result.content) }}</div>
+                  <div class="result-meta">
+                    <span class="result-tokens">{{ result.tokens }} tokens</span>
+                    <span class="result-duration">{{ result.duration }}ms</span>
+                    @if (result.sections.length > 0) {
+                      <span class="result-sections">{{ result.sections.length }} sections</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- Active Result Detail Panel -->
+        @if (activeQueryResult(); as result) {
+          <div class="result-detail-panel">
+            <div class="detail-header">
+              <span class="detail-title">
+                {{ getQueryTypeIcon(result.type) }} {{ result.type }} Result
+              </span>
+              <button class="close-btn" (click)="activeQueryResult.set(null)">✕</button>
+            </div>
+            <div class="detail-content">
+              @if (result.error) {
+                <div class="error-display">
+                  <span class="error-icon-large">⚠️</span>
+                  <span class="error-message">{{ result.error }}</span>
+                </div>
+              } @else {
+                <pre class="result-content-pre">{{ result.content }}</pre>
+              }
+            </div>
+            <div class="detail-footer">
+              <div class="result-stats">
+                <span>{{ result.tokens }} tokens</span>
+                <span>{{ result.duration }}ms</span>
+                <span>{{ result.sections.length }} sections accessed</span>
+              </div>
+              <div class="result-actions">
+                @if (!result.error) {
+                  <button class="action-btn" (click)="copyToClipboard(result.content)">
+                    📋 Copy
+                  </button>
+                }
+                @if (result.sections.length > 0) {
+                  <button class="action-btn" (click)="showResultSections(result)">
+                    📄 View Sections
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        }
 
         <!-- Sections List -->
         <div class="sections-panel">
@@ -1107,6 +1208,220 @@ import type {
     .empty-text {
       font-size: 13px;
     }
+
+    /* Query Results Section */
+    .query-results-section {
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+    }
+
+    .results-header {
+      display: flex;
+      align-items: center;
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .results-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      flex: 1;
+    }
+
+    .results-count {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-right: var(--spacing-sm);
+    }
+
+    .clear-results-btn {
+      padding: 2px 8px;
+      background: var(--bg-secondary);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 10px;
+      cursor: pointer;
+
+      &:hover {
+        background: var(--bg-hover);
+      }
+    }
+
+    .results-list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .result-item {
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+
+      &:hover {
+        background: var(--bg-hover);
+      }
+
+      &.active {
+        background: var(--bg-secondary);
+        border-left: 3px solid var(--primary-color);
+      }
+
+      &.error {
+        background: rgba(239, 68, 68, 0.1);
+
+        .result-type {
+          color: #ef4444;
+        }
+      }
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .result-type {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .result-time {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .result-preview {
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .result-meta {
+      display: flex;
+      gap: var(--spacing-md);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* Result Detail Panel */
+    .result-detail-panel {
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      max-height: 350px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .detail-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .detail-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--spacing-md);
+    }
+
+    .result-content-pre {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .error-display {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-md);
+      background: rgba(239, 68, 68, 0.1);
+      border-radius: var(--radius-sm);
+    }
+
+    .error-icon-large {
+      font-size: 24px;
+    }
+
+    .error-message {
+      color: #ef4444;
+      font-size: 12px;
+    }
+
+    .detail-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-top: 1px solid var(--border-color);
+    }
+
+    .result-stats {
+      display: flex;
+      gap: var(--spacing-md);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .result-actions {
+      display: flex;
+      gap: var(--spacing-sm);
+    }
+
+    /* Error Banner */
+    .error-banner {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-sm) var(--spacing-md);
+      background: rgba(239, 68, 68, 0.1);
+      border-radius: var(--radius-sm);
+      margin-top: var(--spacing-sm);
+    }
+
+    .error-text {
+      flex: 1;
+      font-size: 12px;
+      color: #ef4444;
+    }
+
+    .close-error-btn {
+      background: transparent;
+      border: none;
+      color: #ef4444;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -1122,6 +1437,13 @@ export class RlmContextBrowserComponent {
   startSession = output<void>();
   executeQueryRequest = output<ContextQuery>();
   sectionSelected = output<ContextSection>();
+  queryExecuted = output<QueryResult>();
+
+  /** Query results state */
+  readonly queryResults = signal<QueryResult[]>([]);
+  readonly activeQueryResult = signal<QueryResult | null>(null);
+  readonly isQuerying = signal<boolean>(false);
+  readonly queryError = signal<string | null>(null);
 
   /** Query types */
   queryTypes: QueryType[] = ['grep', 'slice', 'sub_query', 'summarize', 'get_section', 'semantic_search'];
@@ -1298,14 +1620,139 @@ export class RlmContextBrowserComponent {
   }
 
   executeQuery(): void {
-    if (!this.canExecuteQuery()) return;
+    if (!this.canExecuteQuery() || this.isQuerying()) return;
+
+    const queryType = this.selectedQueryType();
+    const startTime = Date.now();
+
+    this.isQuerying.set(true);
+    this.queryError.set(null);
 
     const query: ContextQuery = {
-      type: this.selectedQueryType(),
+      type: queryType,
       params: this.queryParams(),
     };
 
+    // Emit to parent for actual execution
     this.executeQueryRequest.emit(query);
+
+    // For now, the parent component should call addQueryResult when done
+    // This is a placeholder - real implementation would use IPC
+  }
+
+  /**
+   * Add a query result (called by parent after execution)
+   */
+  addQueryResult(result: QueryResult): void {
+    this.isQuerying.set(false);
+
+    if (result.error) {
+      this.queryError.set(result.error);
+    }
+
+    // Add to results list (keep last 50)
+    this.queryResults.update(results => [result, ...results].slice(0, 50));
+    this.activeQueryResult.set(result);
+    this.queryExecuted.emit(result);
+  }
+
+  /**
+   * Select a result to view details
+   */
+  selectResult(result: QueryResult): void {
+    this.activeQueryResult.set(result);
+  }
+
+  /**
+   * Clear all results
+   */
+  clearResults(): void {
+    this.queryResults.set([]);
+    this.activeQueryResult.set(null);
+  }
+
+  /**
+   * Format relative time for display
+   */
+  formatRelativeTime(timestamp: number): string {
+    const diff = Date.now() - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    if (seconds > 0) return `${seconds}s ago`;
+    return 'just now';
+  }
+
+  /**
+   * Copy content to clipboard
+   */
+  async copyToClipboard(content: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(content);
+      // Could emit an event or show a toast here
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+    }
+  }
+
+  /**
+   * Show sections accessed by a result
+   */
+  showResultSections(result: QueryResult): void {
+    // Navigate to the first section in the result
+    if (result.sections.length > 0) {
+      this.navigateToSection(result.sections[0]);
+    }
+  }
+
+  /**
+   * Keyboard navigation
+   */
+  @HostListener('document:keydown', ['$event'])
+  handleKeydown(event: KeyboardEvent): void {
+    // Ctrl/Cmd + Enter to execute query
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      if (this.canExecuteQuery() && !this.isQuerying()) {
+        this.executeQuery();
+      }
+      event.preventDefault();
+      return;
+    }
+
+    // Escape to close panels
+    if (event.key === 'Escape') {
+      if (this.activeQueryResult()) {
+        this.activeQueryResult.set(null);
+        event.preventDefault();
+        return;
+      }
+      if (this.selectedSection()) {
+        this.selectedSection.set(null);
+        event.preventDefault();
+        return;
+      }
+    }
+
+    // Arrow keys to navigate results
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      const results = this.queryResults();
+      if (results.length === 0) return;
+
+      const currentIndex = this.activeQueryResult()
+        ? results.findIndex(r => r.id === this.activeQueryResult()!.id)
+        : -1;
+
+      const direction = event.key === 'ArrowUp' ? -1 : 1;
+      const newIndex = Math.max(0, Math.min(results.length - 1, currentIndex + direction));
+
+      if (newIndex !== currentIndex) {
+        this.activeQueryResult.set(results[newIndex]);
+        event.preventDefault();
+      }
+    }
   }
 
   getSectionContent(sectionId: string): void {

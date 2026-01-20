@@ -8,6 +8,7 @@ import { IpcResponse } from '../../shared/types/ipc.types';
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
+import type { WindowManager } from '../window-manager';
 
 // ============================================
 // Types
@@ -50,9 +51,24 @@ interface CliVerificationCancelPayload {
 // Handler Registration
 // ============================================
 
-export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void {
+/**
+ * Register CLI verification handlers.
+ * Accepts WindowManager to lazily get the main window when needed,
+ * since handlers are registered before the window is created.
+ */
+export function registerCliVerificationHandlers(windowManager: WindowManager): void {
   const cliDetection = CliDetectionService.getInstance();
   const coordinator = getCliVerificationCoordinator();
+
+  // Helper to safely get the main window and send events
+  const sendToRenderer = (channel: string, data: unknown): void => {
+    const mainWindow = windowManager.getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, data);
+    } else {
+      console.warn(`[CLI-Verification-IPC] Cannot send ${channel}: no main window available`);
+    }
+  };
 
   // ============================================
   // CLI Detection Handlers
@@ -142,12 +158,35 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
     }
   );
 
+  // Check specific CLI (legacy handler for compatibility)
+  ipcMain.handle(
+    'cli:check',
+    async (
+      _event: IpcMainInvokeEvent,
+      cliType: string
+    ): Promise<IpcResponse> => {
+      try {
+        const cliInfo = await cliDetection.detectOne(cliType as CliType);
+        return { success: true, data: cliInfo };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CLI_CHECK_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
   // ============================================
   // CLI Verification Handlers
   // ============================================
 
   // Set up event forwarding from coordinator to renderer
-  setupCoordinatorEvents(coordinator, mainWindow);
+  setupCoordinatorEvents(coordinator, sendToRenderer);
 
   // Start CLI verification
   ipcMain.handle(
@@ -157,6 +196,12 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
       payload: CliVerificationStartPayload
     ): Promise<IpcResponse> => {
       try {
+        console.log('[CLI-Verification-IPC] Starting verification with payload:', {
+          id: payload.id,
+          promptLength: payload.prompt?.length,
+          config: payload.config,
+        });
+
         const config: CliVerificationConfig = {
           agentCount: payload.config.agentCount || 3,
           cliAgents: payload.config.cliAgents,
@@ -176,12 +221,13 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
           { prompt: payload.prompt, context: payload.context, id: payload.id },
           config
         ).then((result) => {
-          mainWindow.webContents.send('verification:complete', {
+          sendToRenderer('verification:complete', {
             sessionId: payload.id,
             result,
           });
         }).catch((error) => {
-          mainWindow.webContents.send('verification:error', {
+          console.error('[CLI-Verification-IPC] Verification error:', error);
+          sendToRenderer('verification:error', {
             sessionId: payload.id,
             error: (error as Error).message,
           });
@@ -189,6 +235,7 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
 
         return { success: true, data: { verificationId: payload.id } };
       } catch (error) {
+        console.error('[CLI-Verification-IPC] Failed to start verification:', error);
         return {
           success: false,
           error: {
@@ -275,16 +322,18 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
 // Event Forwarding
 // ============================================
 
+type SendToRenderer = (channel: string, data: unknown) => void;
+
 function setupCoordinatorEvents(
   coordinator: ReturnType<typeof getCliVerificationCoordinator>,
-  mainWindow: BrowserWindow
+  sendToRenderer: SendToRenderer
 ): void {
   console.log('[CLI-Verification-IPC] Setting up coordinator event forwarding');
 
   // Forward verification events to renderer
   coordinator.on('verification:started', (data) => {
     console.log('[CLI-Verification-IPC] Forwarding verification:started', data);
-    mainWindow.webContents.send('verification:started', data);
+    sendToRenderer('verification:started', data);
   });
 
   coordinator.on('verification:agents-launching', (data) => {
@@ -303,7 +352,7 @@ function setupCoordinatorEvents(
         personality: agent.personality,
       };
       console.log('[CLI-Verification-IPC] Sending verification:agent-start', payload);
-      mainWindow.webContents.send('verification:agent-start', payload);
+      sendToRenderer('verification:agent-start', payload);
     }
   });
 
@@ -323,7 +372,7 @@ function setupCoordinatorEvents(
       chunk: data.content,
     };
     console.log('[CLI-Verification-IPC] Sending verification:agent-stream (agentId:', data.agentId, ', chunk length:', (data.content || '').length, ')');
-    mainWindow.webContents.send('verification:agent-stream', payload);
+    sendToRenderer('verification:agent-stream', payload);
   });
 
   // Forward agent complete events
@@ -346,14 +395,14 @@ function setupCoordinatorEvents(
       },
     };
     console.log('[CLI-Verification-IPC] Sending verification:agent-complete', { agentId: data.agentId, success: data.success, responseLength: finalContent.length });
-    mainWindow.webContents.send('verification:agent-complete', payload);
+    sendToRenderer('verification:agent-complete', payload);
     // Clean up tracked content
     agentContent.delete(data.agentId);
   });
 
   coordinator.on('verification:completed', (result) => {
     console.log('[CLI-Verification-IPC] Sending verification:complete', { sessionId: result.id, hasResult: !!result });
-    mainWindow.webContents.send('verification:complete', {
+    sendToRenderer('verification:complete', {
       sessionId: result.id,
       result,
     });
@@ -361,7 +410,7 @@ function setupCoordinatorEvents(
 
   coordinator.on('verification:error', (data) => {
     console.log('[CLI-Verification-IPC] Sending verification:error', { sessionId: data.requestId, error: data.error?.message });
-    mainWindow.webContents.send('verification:error', {
+    sendToRenderer('verification:error', {
       sessionId: data.requestId,
       error: data.error?.message || 'Unknown error',
     });
@@ -369,7 +418,7 @@ function setupCoordinatorEvents(
 
   // Forward cancellation events
   coordinator.on('verification:cancelled', (data) => {
-    mainWindow.webContents.send('verification:cancelled', {
+    sendToRenderer('verification:cancelled', {
       sessionId: data.verificationId,
       reason: data.reason,
       agentsCancelled: data.agentsCancelled,
@@ -377,13 +426,13 @@ function setupCoordinatorEvents(
   });
 
   coordinator.on('verification:agent-cancelled', (data) => {
-    mainWindow.webContents.send('verification:agent-cancelled', {
+    sendToRenderer('verification:agent-cancelled', {
       sessionId: data.verificationId,
       agentId: data.agentId,
     });
   });
 
   coordinator.on('warning', (data) => {
-    mainWindow.webContents.send('verification:warning', data);
+    sendToRenderer('verification:warning', data);
   });
 }

@@ -1,6 +1,8 @@
 /**
  * Codex CLI Adapter - Spawns and manages OpenAI Codex CLI processes
  * https://github.com/openai/codex
+ *
+ * Uses `codex exec` for non-interactive execution with JSONL output
  */
 
 import {
@@ -18,12 +20,12 @@ import {
  * Codex CLI specific configuration
  */
 export interface CodexCliConfig {
-  /** Model to use (gpt-4, etc.) */
+  /** Model to use (gpt-4, o3, etc.) */
   model?: string;
   /** Approval mode: suggest, auto-edit, or full-auto */
   approvalMode?: 'suggest' | 'auto-edit' | 'full-auto';
-  /** Run in sandbox mode */
-  sandbox?: boolean;
+  /** Sandbox mode: read-only, workspace-write, or danger-full-access */
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
   /** Working directory */
   workingDir?: string;
   /** Timeout in milliseconds */
@@ -124,20 +126,44 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const args = this.buildArgs(message);
       this.process = this.spawnProcess(args);
 
-      // Write prompt to stdin
+      // For `codex exec`, the prompt is passed as an argument, not via stdin
+      // Close stdin since we're not using it
       if (this.process.stdin) {
-        this.process.stdin.write(message.content);
         this.process.stdin.end();
       }
 
       this.process.stdout?.on('data', (data) => {
         const chunk = data.toString();
         this.outputBuffer += chunk;
-        this.emit('output', chunk);
+
+        // Parse JSONL events and extract content
+        const lines = chunk.split('\n').filter((l: string) => l.trim());
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line);
+            // Handle Codex exec event types
+            if (event.type === 'item.completed' && event.item?.text) {
+              this.emit('output', event.item.text);
+            } else if (event.type === 'message' && event.content) {
+              this.emit('output', event.content);
+            } else if (event.type === 'agent_message' && event.message?.content) {
+              this.emit('output', event.message.content);
+            }
+          } catch {
+            // Not JSON, may be plain text output - emit if it's not empty
+            if (line.trim() && !line.startsWith('{')) {
+              this.emit('output', line);
+            }
+          }
+        }
       });
 
       this.process.stderr?.on('data', (data) => {
-        this.emit('error', data.toString());
+        const errorStr = data.toString();
+        // Only emit as error if it's actually an error, not just progress info
+        if (errorStr.includes('error') || errorStr.includes('Error') || errorStr.includes('fatal')) {
+          this.emit('error', errorStr);
+        }
       });
 
       this.process.on('close', (code) => {
@@ -173,8 +199,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const args = this.buildArgs(message);
     this.process = this.spawnProcess(args);
 
+    // For `codex exec`, the prompt is passed as an argument, not via stdin
     if (this.process.stdin) {
-      this.process.stdin.write(message.content);
       this.process.stdin.end();
     }
 
@@ -182,19 +208,41 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (!stdout) return;
 
     for await (const chunk of stdout) {
-      yield chunk.toString();
+      const chunkStr = chunk.toString();
+      // Parse JSONL and extract content
+      const lines = chunkStr.split('\n').filter((l: string) => l.trim());
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line);
+          // Handle Codex exec event types
+          if (event.type === 'item.completed' && event.item?.text) {
+            yield event.item.text;
+          } else if (event.type === 'message' && event.content) {
+            yield event.content;
+          } else if (event.type === 'agent_message' && event.message?.content) {
+            yield event.message.content;
+          }
+        } catch {
+          // Not JSON, yield if it looks like content
+          if (line.trim() && !line.startsWith('{')) {
+            yield line;
+          }
+        }
+      }
     }
   }
 
   parseOutput(raw: string): CliResponse {
     const id = this.generateResponseId();
+
+    // Try to parse JSONL output first
+    const content = this.extractContentFromJsonl(raw);
     const toolCalls = this.extractToolCalls(raw);
-    const content = this.cleanContent(raw);
     const usage = this.extractUsage(raw);
 
     return {
       id,
-      content,
+      content: content || this.cleanContent(raw),
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage,
@@ -202,28 +250,81 @@ export class CodexCliAdapter extends BaseCliAdapter {
     };
   }
 
-  protected buildArgs(message: CliMessage): string[] {
-    const args: string[] = [];
+  /**
+   * Extract content from JSONL output format
+   * Codex exec outputs events in format:
+   * - {"type":"item.completed","item":{"id":"...","type":"agent_message","text":"..."}}
+   * - {"type":"turn.completed","usage":{...}}
+   */
+  private extractContentFromJsonl(raw: string): string {
+    const contentParts: string[] = [];
+    const lines = raw.split('\n').filter(l => l.trim());
 
+    for (const line of lines) {
+      try {
+        const event = JSON.parse(line);
+        // Handle Codex exec event types
+        if (event.type === 'item.completed' && event.item?.text) {
+          contentParts.push(event.item.text);
+        } else if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item?.message?.content) {
+          contentParts.push(event.item.message.content);
+        } else if (event.type === 'message' && event.content) {
+          contentParts.push(event.content);
+        } else if (event.type === 'agent_message' && event.message?.content) {
+          contentParts.push(event.message.content);
+        } else if (event.type === 'text' && event.text) {
+          contentParts.push(event.text);
+        } else if (event.type === 'completion' && event.content) {
+          contentParts.push(event.content);
+        }
+      } catch {
+        // Not JSON, skip
+      }
+    }
+
+    return contentParts.join('\n');
+  }
+
+  protected buildArgs(message: CliMessage): string[] {
+    // Use `codex exec` for non-interactive execution
+    const args: string[] = ['exec'];
+
+    // Model selection
     if (this.cliConfig.model) {
       args.push('--model', this.cliConfig.model);
     }
 
-    if (this.cliConfig.approvalMode) {
-      args.push('--approval-mode', this.cliConfig.approvalMode);
+    // Enable JSONL output for easier parsing
+    args.push('--json');
+
+    // Approval mode / sandbox settings
+    if (this.cliConfig.approvalMode === 'full-auto') {
+      // --full-auto is a convenience flag that sets sandbox to workspace-write
+      args.push('--full-auto');
+    } else if (this.cliConfig.sandboxMode) {
+      args.push('--sandbox', this.cliConfig.sandboxMode);
     }
 
-    if (this.cliConfig.sandbox) {
-      args.push('--sandbox');
+    // Working directory
+    if (this.cliConfig.workingDir) {
+      args.push('--cd', this.cliConfig.workingDir);
     }
 
-    // Handle attachments
+    // Skip git repo check in case we're running outside a repo
+    args.push('--skip-git-repo-check');
+
+    // Handle image attachments
     if (message.attachments) {
       for (const attachment of message.attachments) {
-        if (attachment.type === 'file' && attachment.path) {
-          args.push('--file', attachment.path);
+        if (attachment.type === 'image' && attachment.path) {
+          args.push('--image', attachment.path);
         }
       }
+    }
+
+    // Add the prompt as a positional argument (required for exec)
+    if (message.content) {
+      args.push(message.content);
     }
 
     return args;
@@ -273,7 +374,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   private extractUsage(raw: string): CliUsage {
-    // Try to extract usage if present in output
+    // Try to extract usage from JSONL turn.completed event
+    const lines = raw.split('\n').filter(l => l.trim());
+
+    for (const line of lines) {
+      try {
+        const event = JSON.parse(line);
+        if (event.type === 'turn.completed' && event.usage) {
+          return {
+            inputTokens: event.usage.input_tokens || 0,
+            outputTokens: event.usage.output_tokens || 0,
+            totalTokens: (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0),
+          };
+        }
+      } catch {
+        // Not JSON, continue
+      }
+    }
+
+    // Fallback: try to extract from raw text
     const tokensMatch = raw.match(/tokens:\s*(\d+)/i);
     const tokens = tokensMatch ? parseInt(tokensMatch[1]) : this.estimateTokens(raw);
 

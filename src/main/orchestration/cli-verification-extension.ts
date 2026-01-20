@@ -389,7 +389,9 @@ export class CliVerificationCoordinator extends EventEmitter {
       // Collect response
       let responseContent = '';
       let tokens = 0;
+      let responseComplete = false;
 
+      // Set up event listeners before sending message
       agent.provider.on('output', (message: any) => {
         if (message.content) {
           responseContent += message.content;
@@ -408,10 +410,27 @@ export class CliVerificationCoordinator extends EventEmitter {
         tokens = usage.used || 0;
       });
 
-      // Send message and wait for response
+      // Listen for status changes to know when response is complete
+      agent.provider.on('status', (status: any) => {
+        if (status === 'idle') {
+          responseComplete = true;
+        }
+      });
+
+      // Send message
       await agent.provider.sendMessage(fullPrompt);
 
-      // Wait a bit for any final events
+      // Wait for response to complete (with timeout)
+      const maxWaitTime = request.config.timeout || 120000;
+      const pollInterval = 500;
+      let waitedTime = 0;
+
+      while (!responseComplete && waitedTime < maxWaitTime && !session.cancelled) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        waitedTime += pollInterval;
+      }
+
+      // Additional grace period for any final events
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Terminate provider and remove from session tracking

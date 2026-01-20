@@ -311,10 +311,8 @@ export class IpcMainHandler {
     registerVerificationHandlers();
 
     // CLI Verification handlers (Multi-CLI detection and verification)
-    const mainWindow = this.windowManager.getMainWindow();
-    if (mainWindow) {
-      registerCliVerificationHandlers(mainWindow);
-    }
+    // Pass WindowManager so handlers can lazily get the window when it's available
+    registerCliVerificationHandlers(this.windowManager);
 
     // Learning handlers (RLM Context, Self-Improvement, Model Discovery)
     registerLearningHandlers();
@@ -617,48 +615,8 @@ export class IpcMainHandler {
       };
     });
 
-    // Detect all available CLIs
-    ipcMain.handle(IPC_CHANNELS.CLI_DETECT_ALL, async (): Promise<IpcResponse> => {
-      try {
-        const clis = await detectAvailableClis();
-        return {
-          success: true,
-          data: clis,
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'CLI_DETECT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    });
-
-    // Check specific CLI
-    ipcMain.handle(
-      IPC_CHANNELS.CLI_CHECK,
-      async (event: IpcMainInvokeEvent, cliType: string): Promise<IpcResponse> => {
-        try {
-          const cli = await isCliAvailable(cliType as CliType);
-          return {
-            success: true,
-            data: cli,
-          };
-        } catch (error) {
-          return {
-            success: false,
-            error: {
-              code: 'CLI_CHECK_FAILED',
-              message: (error as Error).message,
-              timestamp: Date.now(),
-            },
-          };
-        }
-      }
-    );
+    // Note: CLI detection handlers (cli:detect-all, cli:detect-one, cli:test-connection)
+    // are registered in cli-verification-ipc-handler.ts with more complete implementation
 
     // Open folder selection dialog
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDER, async (): Promise<IpcResponse> => {

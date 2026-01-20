@@ -78,10 +78,24 @@ export class CliStore {
     this.state.update((s) => ({ ...s, loading: true }));
 
     try {
-      const response = await this.ipc.detectClis() as { success: boolean; data?: unknown };
+      const response = await this.ipc.detectClis() as {
+        success: boolean;
+        data?: {
+          detected: CliInfo[];
+          available: CliInfo[];
+          unavailable: CliInfo[];
+          timestamp: Date;
+        };
+      };
 
-      if (response.success && response.data && Array.isArray(response.data)) {
-        const clis = response.data as CliInfo[];
+      console.log('[CliStore] Detection response:', response);
+
+      if (response.success && response.data) {
+        // The response.data contains { detected, available, unavailable }
+        // Use 'detected' for all CLIs, 'available' already has installed=true filtered
+        const clis = response.data.detected || [];
+
+        console.log('[CliStore] CLIs detected:', clis.map(c => ({ name: c.name, installed: c.installed })));
 
         // Auto-select first available CLI
         const firstAvailable = clis.find((cli) => cli.installed);
@@ -94,6 +108,7 @@ export class CliStore {
           initialized: true,
         }));
       } else {
+        console.log('[CliStore] Detection failed or no data:', response);
         this.state.update((s) => ({
           ...s,
           loading: false,

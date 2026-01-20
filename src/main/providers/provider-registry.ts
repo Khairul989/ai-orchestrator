@@ -33,7 +33,8 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'openai',
     name: 'OpenAI',
     enabled: false,
-    defaultModel: 'gpt-4o',
+    // Don't set a default model - let Codex CLI use its configured default
+    // This avoids issues with ChatGPT accounts that don't support certain models
   },
   'openai-compatible': {
     type: 'openai-compatible',
@@ -52,7 +53,8 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'google',
     name: 'Google AI',
     enabled: false,
-    defaultModel: 'gemini-1.5-pro',
+    // Don't set a default model - let Gemini CLI use its configured default
+    // This avoids model access issues
   },
   'amazon-bedrock': {
     type: 'amazon-bedrock',

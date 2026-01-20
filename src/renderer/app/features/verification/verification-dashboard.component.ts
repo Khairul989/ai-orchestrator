@@ -97,59 +97,6 @@ import type { SynthesisStrategy } from '../../../../shared/types/verification.ty
       <div class="tab-content">
         @switch (store.selectedTab()) {
           @case ('dashboard') {
-            <!-- Available Agents Section -->
-            <section class="section" [class.collapsed]="agentsCollapsed()">
-              <div class="section-header clickable" (click)="toggleAgentsCollapsed()">
-                <div class="section-header-left">
-                  <button class="collapse-btn" [class.collapsed]="agentsCollapsed()">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </button>
-                  <h2 class="section-title">Available Agents</h2>
-                  <span class="agents-count-badge">{{ availableClis().length }}/{{ totalClis() }}</span>
-                </div>
-                <button
-                  class="action-btn text"
-                  [disabled]="isScanning()"
-                  (click)="rescanClis(); $event.stopPropagation()"
-                >
-                  @if (isScanning()) {
-                    Scanning...
-                  } @else {
-                    Rescan CLIs
-                  }
-                </button>
-              </div>
-
-              <div class="collapsible-content" [class.collapsed]="agentsCollapsed()">
-                <div class="agents-grid">
-                  @for (cli of availableClis(); track cli.name) {
-                    <app-agent-card
-                      [cli]="cli"
-                      [selected]="isAgentSelected(cli.name)"
-                      (select)="toggleAgentSelection(cli.name)"
-                      (configure)="openAgentConfig(cli.name)"
-                    />
-                  }
-                  @for (cli of unavailableClis(); track cli.name) {
-                    <app-agent-card
-                      [cli]="cli"
-                      [selected]="false"
-                      [unavailable]="true"
-                      (install)="openInstallGuide(cli.name)"
-                    />
-                  }
-                </div>
-
-                <div class="agents-summary">
-                  <span class="summary-text">
-                    {{ availableClis().length }} of {{ totalClis() }} agents available
-                  </span>
-                </div>
-              </div>
-            </section>
-
             <!-- Quick Start Section -->
             <section class="section">
               <div class="section-header">
@@ -227,6 +174,59 @@ import type { SynthesisStrategy } from '../../../../shared/types/verification.ty
                   >
                     Start Verification
                   </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Available Agents Section -->
+            <section class="section" [class.collapsed]="agentsCollapsed()">
+              <div class="section-header clickable" (click)="toggleAgentsCollapsed()">
+                <div class="section-header-left">
+                  <button class="collapse-btn" [class.collapsed]="agentsCollapsed()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                  <h2 class="section-title">Available Agents</h2>
+                  <span class="agents-count-badge">{{ availableClis().length }}/{{ totalClis() }}</span>
+                </div>
+                <button
+                  class="action-btn text"
+                  [disabled]="isScanning()"
+                  (click)="rescanClis(); $event.stopPropagation()"
+                >
+                  @if (isScanning()) {
+                    Scanning...
+                  } @else {
+                    Rescan CLIs
+                  }
+                </button>
+              </div>
+
+              <div class="collapsible-content" [class.collapsed]="agentsCollapsed()">
+                <div class="agents-grid">
+                  @for (cli of availableClis(); track cli.name) {
+                    <app-agent-card
+                      [cli]="cli"
+                      [selected]="isAgentSelected(cli.name)"
+                      (select)="toggleAgentSelection(cli.name)"
+                      (configure)="openAgentConfig(cli.name)"
+                    />
+                  }
+                  @for (cli of unavailableClis(); track cli.name) {
+                    <app-agent-card
+                      [cli]="cli"
+                      [selected]="false"
+                      [unavailable]="true"
+                      (install)="openInstallGuide(cli.name)"
+                    />
+                  }
+                </div>
+
+                <div class="agents-summary">
+                  <span class="summary-text">
+                    {{ availableClis().length }} of {{ totalClis() }} agents available
+                  </span>
                 </div>
               </div>
             </section>

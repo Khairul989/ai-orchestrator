@@ -6,9 +6,12 @@
  * 1. Record task outcomes with patterns
  * 2. Identify successful/failure patterns
  * 3. Build experience library for future prompts
+ *
+ * Now with SQLite persistence layer for data durability
  */
 
 import { EventEmitter } from 'events';
+import * as crypto from 'crypto';
 import {
   TaskOutcome,
   TaskPattern,
@@ -21,6 +24,7 @@ import {
   LearningStats,
   TaskTypeStats,
 } from '../../shared/types/self-improvement.types';
+import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 
 export class OutcomeTracker extends EventEmitter {
   private static instance: OutcomeTracker;
@@ -29,6 +33,8 @@ export class OutcomeTracker extends EventEmitter {
   private experiences: Map<string, Experience> = new Map();
   private insights: LearningInsight[] = [];
   private config: SelfImprovementConfig;
+  private db: RLMDatabase | null = null;
+  private persistenceEnabled = true;
 
   private defaultConfig: SelfImprovementConfig = {
     minSampleSize: 10,
@@ -52,6 +58,116 @@ export class OutcomeTracker extends EventEmitter {
   private constructor() {
     super();
     this.config = { ...this.defaultConfig };
+    this.initializePersistence();
+  }
+
+  /**
+   * Initialize database persistence and load existing data
+   */
+  private initializePersistence(): void {
+    try {
+      this.db = getRLMDatabase();
+      this.loadFromPersistence();
+      this.emit('persistence:initialized', { success: true });
+    } catch (error) {
+      console.error('[OutcomeTracker] Failed to initialize persistence:', error);
+      this.persistenceEnabled = false;
+      this.emit('persistence:initialized', { success: false, error });
+    }
+  }
+
+  /**
+   * Load persisted data into memory on startup
+   */
+  private loadFromPersistence(): void {
+    if (!this.db) return;
+
+    // Load outcomes
+    const outcomeRows = this.db.getOutcomes({ limit: this.config.maxExperiences });
+    for (const row of outcomeRows) {
+      const metadata = row.metadata_json ? JSON.parse(row.metadata_json) : {};
+      const toolsData = row.tools_json ? JSON.parse(row.tools_json) : [];
+      const outcome: TaskOutcome = {
+        id: row.id,
+        instanceId: metadata.instanceId || 'unknown',
+        taskType: row.task_type,
+        taskDescription: metadata.taskDescription || '',
+        prompt: row.prompt_hash || '',
+        context: undefined,
+        agentUsed: row.agent_id || 'unknown',
+        modelUsed: row.model || 'unknown',
+        toolsUsed: toolsData.map((t: string) => ({ tool: t, count: 1, avgDuration: 0, errorCount: 0 })),
+        success: row.success === 1,
+        errorType: row.error_type || undefined,
+        duration: row.duration_ms || 0,
+        tokensUsed: row.token_usage || 0,
+        timestamp: row.timestamp,
+        patterns: [],
+        userSatisfaction: metadata.userSatisfaction,
+      };
+      this.outcomes.push(outcome);
+    }
+
+    // Load patterns
+    const patternRows = this.db.getPatterns();
+    for (const row of patternRows) {
+      const pattern: TaskPattern = {
+        type: row.type as PatternType,
+        value: row.key,
+        effectiveness: row.effectiveness,
+        sampleSize: row.sample_size,
+        lastUpdated: row.last_updated,
+      };
+      this.patterns.set(`${row.type}:${row.key}`, pattern);
+    }
+
+    // Load experiences
+    const experienceRows = this.db.getAllExperiences();
+    for (const row of experienceRows) {
+      const experience: Experience = {
+        id: row.id,
+        taskType: row.task_type,
+        description: '',
+        successfulPatterns: row.success_patterns_json ? JSON.parse(row.success_patterns_json) : [],
+        failurePatterns: row.failure_patterns_json ? JSON.parse(row.failure_patterns_json) : [],
+        examplePrompts: row.example_prompts_json ? JSON.parse(row.example_prompts_json) : [],
+        sampleSize: row.success_count + row.failure_count,
+        avgSuccessRate: row.success_count / Math.max(1, row.success_count + row.failure_count),
+        lastUpdated: row.last_updated,
+      };
+      this.experiences.set(row.task_type, experience);
+    }
+
+    // Load insights
+    const insightRows = this.db.getInsights();
+    for (const row of insightRows) {
+      const insight: LearningInsight = {
+        id: row.id,
+        type: row.type as LearningInsight['type'],
+        description: row.description || row.title,
+        confidence: row.confidence,
+        evidence: row.supporting_patterns_json ? JSON.parse(row.supporting_patterns_json) : [],
+        taskTypes: [],
+        createdAt: row.created_at,
+        appliedCount: 0,
+        successRate: 0,
+      };
+      this.insights.push(insight);
+    }
+
+    this.emit('persistence:loaded', {
+      outcomes: outcomeRows.length,
+      patterns: patternRows.length,
+      experiences: experienceRows.length,
+      insights: insightRows.length,
+    });
+  }
+
+  /**
+   * Check if persistence is available
+   */
+  isPersistenceEnabled(): boolean {
+    return this.persistenceEnabled && this.db !== null;
   }
 
   configure(config: Partial<SelfImprovementConfig>): void {
@@ -77,12 +193,44 @@ export class OutcomeTracker extends EventEmitter {
     this.updateExperience(fullOutcome);
     this.checkForInsights();
 
+    // Persist outcome to database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.addOutcome({
+          id: fullOutcome.id,
+          taskType: fullOutcome.taskType,
+          success: fullOutcome.success,
+          timestamp: fullOutcome.timestamp,
+          durationMs: fullOutcome.duration,
+          tokenUsage: fullOutcome.tokensUsed,
+          agentId: fullOutcome.agentUsed,
+          model: fullOutcome.modelUsed,
+          errorType: fullOutcome.errorType,
+          promptHash: this.hashPrompt(fullOutcome.prompt),
+          tools: fullOutcome.toolsUsed.map(t => t.tool),
+          metadata: {
+            taskDescription: fullOutcome.taskDescription,
+            userSatisfaction: fullOutcome.userSatisfaction,
+          },
+        });
+      } catch (error) {
+        console.error('[OutcomeTracker] Failed to persist outcome:', error);
+      }
+    }
+
     this.emit('outcome:recorded', fullOutcome);
 
     // Cleanup old outcomes
     this.pruneOldData();
 
     return fullOutcome;
+  }
+
+  /**
+   * Generate a hash of the prompt for storage (privacy-preserving)
+   */
+  private hashPrompt(prompt: string): string {
+    return crypto.createHash('sha256').update(prompt).digest('hex').slice(0, 16);
   }
 
   private extractPatterns(outcome: Omit<TaskOutcome, 'id' | 'patterns' | 'timestamp'>): TaskPattern[] {
@@ -185,8 +333,38 @@ export class OutcomeTracker extends EventEmitter {
           alpha * pattern.effectiveness;
         existing.sampleSize++;
         existing.lastUpdated = Date.now();
+
+        // Persist pattern update
+        if (this.db && this.persistenceEnabled) {
+          try {
+            this.db.upsertPattern({
+              id: `pattern-${key.replace(/[^a-zA-Z0-9]/g, '-')}`,
+              type: pattern.type,
+              key: pattern.value,
+              effectiveness: existing.effectiveness,
+              sampleSize: existing.sampleSize,
+            });
+          } catch (error) {
+            console.error('[OutcomeTracker] Failed to persist pattern:', error);
+          }
+        }
       } else {
         this.patterns.set(key, { ...pattern });
+
+        // Persist new pattern
+        if (this.db && this.persistenceEnabled) {
+          try {
+            this.db.upsertPattern({
+              id: `pattern-${key.replace(/[^a-zA-Z0-9]/g, '-')}`,
+              type: pattern.type,
+              key: pattern.value,
+              effectiveness: pattern.effectiveness,
+              sampleSize: pattern.sampleSize,
+            });
+          } catch (error) {
+            console.error('[OutcomeTracker] Failed to persist new pattern:', error);
+          }
+        }
       }
     }
   }
@@ -243,6 +421,24 @@ export class OutcomeTracker extends EventEmitter {
       (experience.avgSuccessRate * (experience.sampleSize - 1) + (outcome.success ? 1 : 0)) /
       experience.sampleSize;
     experience.lastUpdated = Date.now();
+
+    // Persist experience to database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        const successCount = Math.round(experience.avgSuccessRate * experience.sampleSize);
+        this.db.upsertExperience({
+          id: experience.id,
+          taskType: experience.taskType,
+          successCount,
+          failureCount: experience.sampleSize - successCount,
+          successPatterns: experience.successfulPatterns.map(p => `${p.type}:${p.value}`),
+          failurePatterns: experience.failurePatterns.map(p => `${p.type}:${p.value}`),
+          examplePrompts: experience.examplePrompts.map(e => e.prompt.slice(0, 200)),
+        });
+      } catch (error) {
+        console.error('[OutcomeTracker] Failed to persist experience:', error);
+      }
+    }
   }
 
   private checkForInsights(): void {
@@ -285,6 +481,23 @@ export class OutcomeTracker extends EventEmitter {
     };
 
     this.insights.push(insight);
+
+    // Persist insight to database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.addInsight({
+          id: insight.id,
+          type: insight.type,
+          title: `${type}: ${patternType}`,
+          description: insight.description,
+          confidence: insight.confidence,
+          supportingPatterns: insight.evidence,
+        });
+      } catch (error) {
+        console.error('[OutcomeTracker] Failed to persist insight:', error);
+      }
+    }
+
     this.emit('insight:created', insight);
   }
 

@@ -69,8 +69,10 @@ export class GeminiCliProvider extends BaseProvider {
     }
 
     // Map session options to Gemini config
+    // Don't specify a model by default - let Gemini CLI use its configured default
+    // This avoids model access issues (e.g., gemini-1.5-pro may not be available)
     const geminiConfig: GeminiCliConfig = {
-      model: options.model || this.config.defaultModel || 'gemini-1.5-pro',
+      model: options.model || this.config.defaultModel, // undefined is OK - Gemini will use its default
       yolo: options.yoloMode,
       sandbox: false,
       workingDir: options.workingDirectory,

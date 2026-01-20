@@ -69,10 +69,12 @@ export class CodexCliProvider extends BaseProvider {
     }
 
     // Map session options to Codex config
+    // Don't specify a model by default - let Codex use its configured default
+    // This avoids issues with ChatGPT accounts that don't support certain models
     const codexConfig: CodexCliConfig = {
-      model: options.model || this.config.defaultModel || 'gpt-4',
+      model: options.model || this.config.defaultModel, // undefined is OK - Codex will use its default
       approvalMode: options.yoloMode ? 'full-auto' : 'suggest',
-      sandbox: false,
+      sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
       workingDir: options.workingDirectory,
       timeout: 300000,
     };

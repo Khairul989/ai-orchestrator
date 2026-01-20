@@ -18,7 +18,9 @@
     "test:unit": "vitest",
     "test:unit:run": "vitest run",
     "test:coverage": "vitest --coverage",
-    "lint": "ng lint"
+    "lint": "ng lint",
+    "postinstall": "node scripts/rebuild-native-modules.js",
+    "rebuild:native": "node scripts/rebuild-native-modules.js"
   },
   "keywords": [
     "claude",
@@ -42,6 +44,7 @@
     "@anthropic-ai/sdk": "^0.71.2",
     "@types/diff": "^7.0.2",
     "@types/dompurify": "^3.0.5",
+    "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",
     "diff": "^8.0.3",
     "dompurify": "^3.3.1",
@@ -67,6 +70,8 @@
     "@angular-devkit/build-angular": "^21.1.0",
     "@angular/cli": "^21.1.0",
     "@angular/compiler-cli": "^21.1.0",
+    "@electron/rebuild": "^4.0.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/file-saver": "^2.0.7",
     "@types/glob": "^8.1.0",
     "@types/js-yaml": "^4.0.9",

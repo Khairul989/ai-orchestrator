@@ -33,17 +33,18 @@ export interface DetectionResult {
 }
 
 /**
- * CLI type identifiers
+ * CLI type identifiers - only CLIs with provider implementations
  */
 export type CliType =
   | 'claude'
   | 'codex'
   | 'gemini'
-  | 'ollama'
-  | 'aider'
-  | 'continue'
-  | 'cursor'
-  | 'copilot';
+  | 'ollama';
+
+/**
+ * CLIs that have provider implementations and can be used for verification
+ */
+const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'ollama'];
 
 /**
  * Registry entry for a CLI tool
@@ -61,7 +62,7 @@ interface CliRegistryEntry {
 }
 
 /**
- * Registry of known CLI tools
+ * Registry of known CLI tools - only includes CLIs with provider implementations
  */
 const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   claude: {
@@ -114,49 +115,6 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       '/Applications/Ollama.app/Contents/MacOS/ollama',
     ],
   },
-  aider: {
-    name: 'aider',
-    command: 'aider',
-    displayName: 'Aider',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['streaming', 'file-access', 'git-integration', 'multi-turn'],
-    alternativePaths: [
-      `${process.env['HOME']}/.local/bin/aider`,
-    ],
-  },
-  continue: {
-    name: 'continue',
-    command: 'continue',
-    displayName: 'Continue',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['streaming', 'file-access', 'ide-integration'],
-    alternativePaths: [],
-  },
-  cursor: {
-    name: 'cursor',
-    command: 'cursor',
-    displayName: 'Cursor',
-    versionFlag: '--version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['streaming', 'file-access', 'shell', 'ide-integration'],
-    alternativePaths: [
-      '/Applications/Cursor.app/Contents/MacOS/cursor',
-      '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
-    ],
-  },
-  copilot: {
-    name: 'copilot',
-    command: 'gh',
-    displayName: 'GitHub Copilot CLI',
-    versionFlag: 'copilot --version',
-    versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: ['streaming', 'shell', 'git-integration'],
-    alternativePaths: [
-      '/usr/local/bin/gh',
-    ],
-  },
 };
 
 /**
@@ -184,19 +142,32 @@ export class CliDetectionService {
    * Detect all available CLI tools
    */
   async detectAll(forceRefresh = false): Promise<DetectionResult> {
+    console.log('[CliDetection] detectAll called, forceRefresh:', forceRefresh);
+    console.log('[CliDetection] HOME:', process.env['HOME']);
+
     // Check cache
     if (!forceRefresh && this.cache) {
       const age = Date.now() - this.cacheTime;
       if (age < this.cacheTimeout) {
+        console.log('[CliDetection] Returning cached result');
         return this.cache;
       }
     }
 
-    // Detect all CLIs in parallel
-    const cliTypes = Object.keys(CLI_REGISTRY) as CliType[];
+    // Detect only supported CLIs (ones with provider implementations)
+    const cliTypes = SUPPORTED_CLIS;
+    console.log('[CliDetection] Checking CLIs:', cliTypes);
     const results = await Promise.all(
       cliTypes.map((type) => this.checkCli(type))
     );
+
+    console.log('[CliDetection] Results:', results.map(r => ({
+      name: r.name,
+      installed: r.installed,
+      version: r.version,
+      path: r.path,
+      error: r.error,
+    })));
 
     const detectionResult: DetectionResult = {
       detected: results,
@@ -204,6 +175,8 @@ export class CliDetectionService {
       unavailable: results.filter((r) => !r.installed),
       timestamp: new Date(),
     };
+
+    console.log('[CliDetection] Available:', detectionResult.available.map(r => r.name));
 
     // Update cache
     this.cache = detectionResult;
@@ -338,6 +311,10 @@ export class CliDetectionService {
         const currentPath = process.env['PATH'] || '';
         const extendedPath = [...additionalPaths, currentPath].join(':');
 
+        console.log(`[CliDetection] checkCommand: ${command} ${args.join(' ')}`);
+        console.log(`[CliDetection] HOME: ${homeDir}`);
+        console.log(`[CliDetection] Extended PATH includes: ${additionalPaths.join(', ')}`);
+
         const proc = spawn(command, args, {
           timeout: 5000,
           shell: true,
@@ -359,18 +336,23 @@ export class CliDetectionService {
           const output = stdout + stderr;
           const versionMatch = output.match(config.versionPattern);
 
+          console.log(`[CliDetection] ${command} close event: code=${code}, stdout=${stdout.substring(0, 100)}, stderr=${stderr.substring(0, 100)}`);
+
           if (code === 0 || versionMatch) {
             result.installed = true;
             result.version = versionMatch?.[1];
             result.path = command;
             result.authenticated = !output.includes('not authenticated');
+            console.log(`[CliDetection] ${command} detected: version=${result.version}`);
           } else {
             result.error = stderr.trim() || 'Command failed';
+            console.log(`[CliDetection] ${command} not detected: error=${result.error}`);
           }
           resolve(result);
         });
 
         proc.on('error', (err) => {
+          console.log(`[CliDetection] ${command} error event: ${err.message}`);
           result.error = err.message;
           resolve(result);
         });

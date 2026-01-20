@@ -4,6 +4,8 @@
  *
  * Treats context as external environment for programmatic manipulation
  * Achieves 85%+ token savings vs direct context feeding
+ *
+ * Now with SQLite persistence layer for data durability
  */
 
 import * as crypto from 'crypto';
@@ -23,12 +25,20 @@ import {
   RLMStoreStats,
   RLMSessionStats,
 } from '../../shared/types/rlm.types';
+import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
+import { ContextSectionRow } from '../persistence/rlm-database.types';
+import { VectorStore, getVectorStore } from './vector-store';
+import { LLMService, getLLMService } from './llm-service';
 
 export class RLMContextManager extends EventEmitter {
   private static instance: RLMContextManager;
   private stores: Map<string, ContextStore> = new Map();
   private sessions: Map<string, RLMSession> = new Map();
   private config: RLMConfig;
+  private db: RLMDatabase | null = null;
+  private vectorStore: VectorStore | null = null;
+  private llmService: LLMService | null = null;
+  private persistenceEnabled = true;
 
   private defaultConfig: RLMConfig = {
     maxSectionTokens: 8000,
@@ -51,6 +61,182 @@ export class RLMContextManager extends EventEmitter {
   private constructor() {
     super();
     this.config = { ...this.defaultConfig };
+    this.initializePersistence();
+  }
+
+  /**
+   * Initialize database persistence and load existing data
+   */
+  private initializePersistence(): void {
+    try {
+      this.db = getRLMDatabase();
+      this.vectorStore = getVectorStore();
+      this.llmService = getLLMService();
+      this.loadFromPersistence();
+      this.setupLLMHandlers();
+      this.emit('persistence:initialized', { success: true });
+    } catch (error) {
+      console.error('[RLM] Failed to initialize persistence:', error);
+      this.persistenceEnabled = false;
+      this.emit('persistence:initialized', { success: false, error });
+    }
+  }
+
+  /**
+   * Setup handlers for LLM-based operations
+   */
+  private setupLLMHandlers(): void {
+    if (!this.llmService) return;
+
+    // Handle summarization requests
+    this.on('summarize:request', async (request: {
+      sessionId: string;
+      content: string;
+      targetTokens: number;
+      callback: (summary: string) => void;
+    }) => {
+      try {
+        const summary = await this.llmService!.summarize({
+          requestId: `sum-${Date.now()}`,
+          content: request.content,
+          targetTokens: request.targetTokens,
+          preserveKeyPoints: true,
+        });
+
+        request.callback(summary);
+      } catch (error) {
+        console.error('[RLM] LLM summarization failed:', error);
+        // Fallback handled internally by LLMService
+      }
+    });
+
+    // Handle sub-query requests
+    this.on('sub_query:request', async (request: {
+      sessionId: string;
+      callId: string;
+      prompt: string;
+      context: string;
+      depth: number;
+      callback: (response: string, tokens: { input: number; output: number }) => void;
+    }) => {
+      try {
+        const response = await this.llmService!.subQuery({
+          requestId: request.callId,
+          prompt: request.prompt,
+          context: request.context,
+          depth: request.depth,
+        });
+
+        const tokens = {
+          input: Math.ceil((request.context.length + request.prompt.length) / 4),
+          output: Math.ceil(response.length / 4),
+        };
+
+        request.callback(response, tokens);
+      } catch (error) {
+        console.error('[RLM] LLM sub-query failed:', error);
+        request.callback('[Sub-query failed]', { input: 0, output: 0 });
+      }
+    });
+  }
+
+  /**
+   * Load persisted data into memory on startup
+   */
+  private loadFromPersistence(): void {
+    if (!this.db) return;
+
+    const storeRows = this.db.listStores();
+    let loadedStores = 0;
+    let loadedSections = 0;
+
+    for (const row of storeRows) {
+      const sectionRows = this.db.getSections(row.id);
+
+      const store: ContextStore = {
+        id: row.id,
+        instanceId: row.instance_id,
+        sections: sectionRows.map(s => this.rowToSection(s)),
+        totalTokens: row.total_tokens,
+        totalSize: row.total_size,
+        searchIndex: { terms: new Map(), sectionBoundaries: [], lastRebuilt: Date.now() },
+        createdAt: row.created_at,
+        lastAccessed: row.last_accessed,
+        accessCount: row.access_count,
+      };
+
+      // Rebuild in-memory search index
+      for (const section of store.sections) {
+        if (section.depth === 0) {
+          this.updateSearchIndex(store, section);
+        }
+      }
+
+      this.stores.set(row.id, store);
+      loadedStores++;
+      loadedSections += sectionRows.length;
+    }
+
+    // Load active sessions
+    const sessionRows = this.db.listSessions();
+    for (const row of sessionRows) {
+      if (!row.ended_at) {
+        const session: RLMSession = {
+          id: row.id,
+          storeId: row.store_id,
+          instanceId: row.instance_id,
+          queries: row.queries_json ? JSON.parse(row.queries_json) : [],
+          recursiveCalls: row.recursive_calls_json ? JSON.parse(row.recursive_calls_json) : [],
+          totalRootTokens: row.total_root_tokens,
+          totalSubQueryTokens: row.total_sub_query_tokens,
+          estimatedDirectTokens: row.estimated_direct_tokens,
+          tokenSavingsPercent: row.token_savings_percent,
+          startedAt: row.started_at,
+          lastActivityAt: row.last_activity_at,
+        };
+        this.sessions.set(row.id, session);
+      }
+    }
+
+    this.emit('persistence:loaded', { storeCount: loadedStores, sectionCount: loadedSections });
+  }
+
+  /**
+   * Convert database row to ContextSection
+   */
+  private rowToSection(row: ContextSectionRow): ContextSection {
+    const content = this.db ? this.db.getSectionContent(row) : '';
+
+    return {
+      id: row.id,
+      type: row.type as ContextSection['type'],
+      name: row.name,
+      content,
+      tokens: row.tokens,
+      startOffset: row.start_offset,
+      endOffset: row.end_offset,
+      checksum: row.checksum || '',
+      depth: row.depth,
+      filePath: row.file_path || undefined,
+      language: row.language || undefined,
+      sourceUrl: row.source_url || undefined,
+      summarizes: row.summarizes_json ? JSON.parse(row.summarizes_json) : undefined,
+      parentSummaryId: row.parent_summary_id || undefined,
+    };
+  }
+
+  /**
+   * Check if persistence is available
+   */
+  isPersistenceEnabled(): boolean {
+    return this.persistenceEnabled && this.db !== null;
+  }
+
+  /**
+   * Get database statistics
+   */
+  getDatabaseStats(): ReturnType<RLMDatabase['getStats']> | null {
+    return this.db?.getStats() || null;
   }
 
   configure(config: Partial<RLMConfig>): void {
@@ -64,6 +250,12 @@ export class RLMContextManager extends EventEmitter {
   // ============ Store Management ============
 
   createStore(instanceId: string): ContextStore {
+    // Check if store already exists for this instance
+    const existing = this.getStoreByInstance(instanceId);
+    if (existing) {
+      return existing;
+    }
+
     const store: ContextStore = {
       id: `ctx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       instanceId,
@@ -74,6 +266,18 @@ export class RLMContextManager extends EventEmitter {
       lastAccessed: Date.now(),
       accessCount: 0,
     };
+
+    // Persist to database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.createStore({
+          id: store.id,
+          instanceId: store.instanceId,
+        });
+      } catch (error) {
+        console.error('[RLM] Failed to persist store:', error);
+      }
+    }
 
     this.stores.set(store.id, store);
     this.emit('store:created', store);
@@ -114,8 +318,47 @@ export class RLMContextManager extends EventEmitter {
     store.totalTokens += tokens;
     store.totalSize += content.length;
 
-    // Rebuild search index incrementally
+    // Persist section to database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.addSection({
+          id: section.id,
+          storeId,
+          type: section.type,
+          name: section.name,
+          startOffset: section.startOffset,
+          endOffset: section.endOffset,
+          tokens: section.tokens,
+          checksum: section.checksum,
+          depth: section.depth,
+          summarizes: section.summarizes,
+          parentSummaryId: section.parentSummaryId,
+          filePath: section.filePath,
+          language: section.language,
+          sourceUrl: section.sourceUrl,
+          content: section.content,
+        });
+        // Also index the section for search
+        this.db.indexSection(storeId, section.id, section.content);
+      } catch (error) {
+        console.error('[RLM] Failed to persist section:', error);
+      }
+    }
+
+    // Rebuild search index incrementally (in-memory)
     this.updateSearchIndex(store, section);
+
+    // Add vector for semantic search (async, don't await)
+    if (this.vectorStore) {
+      this.vectorStore.addSection(storeId, section.id, section.content, {
+        type: section.type,
+        name: section.name,
+        filePath: section.filePath,
+        language: section.language,
+      }).catch(error => {
+        console.error('[RLM] Failed to add vector for section:', error);
+      });
+    }
 
     // Check if summarization needed
     if (store.totalTokens > this.config.summaryThreshold) {
@@ -154,6 +397,43 @@ export class RLMContextManager extends EventEmitter {
       store.sections.push(chunkSection);
       store.totalTokens += chunkSection.tokens;
       store.totalSize += chunks[i].length;
+
+      // Persist each chunk to database
+      if (this.db && this.persistenceEnabled) {
+        try {
+          this.db.addSection({
+            id: chunkSection.id,
+            storeId: store.id,
+            type: chunkSection.type,
+            name: chunkSection.name,
+            startOffset: chunkSection.startOffset,
+            endOffset: chunkSection.endOffset,
+            tokens: chunkSection.tokens,
+            checksum: chunkSection.checksum,
+            depth: chunkSection.depth,
+            filePath: chunkSection.filePath,
+            language: chunkSection.language,
+            sourceUrl: chunkSection.sourceUrl,
+            content: chunkSection.content,
+          });
+          this.db.indexSection(store.id, chunkSection.id, chunkSection.content);
+        } catch (error) {
+          console.error('[RLM] Failed to persist chunk section:', error);
+        }
+      }
+
+      // Add vector for semantic search (async, don't await)
+      if (this.vectorStore) {
+        this.vectorStore.addSection(store.id, chunkSection.id, chunkSection.content, {
+          type: chunkSection.type,
+          name: chunkSection.name,
+          filePath: chunkSection.filePath,
+          language: chunkSection.language,
+        }).catch(error => {
+          console.error('[RLM] Failed to add vector for chunk section:', error);
+        });
+      }
+
       this.updateSearchIndex(store, chunkSection);
       sections.push(chunkSection);
     }
@@ -229,6 +509,20 @@ export class RLMContextManager extends EventEmitter {
       startedAt: Date.now(),
       lastActivityAt: Date.now(),
     };
+
+    // Persist session to database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.createSession({
+          id: session.id,
+          storeId: session.storeId,
+          instanceId: session.instanceId,
+          estimatedDirectTokens: session.estimatedDirectTokens,
+        });
+      } catch (error) {
+        console.error('[RLM] Failed to persist session:', error);
+      }
+    }
 
     this.sessions.set(session.id, session);
     this.emit('session:started', session);
@@ -334,6 +628,27 @@ export class RLMContextManager extends EventEmitter {
     );
 
     session.queries.push(queryResult);
+
+    // Persist session updates
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.updateSession(session.id, {
+          totalQueries: session.queries.length,
+          totalRootTokens: session.totalRootTokens,
+          totalSubQueryTokens: session.totalSubQueryTokens,
+          tokenSavingsPercent: session.tokenSavingsPercent,
+          queriesJson: JSON.stringify(session.queries),
+          recursiveCallsJson: JSON.stringify(session.recursiveCalls),
+        });
+        // Also update store access stats
+        this.db.updateStoreStats(store.id, {
+          accessCount: store.accessCount,
+        });
+      } catch (error) {
+        console.error('[RLM] Failed to persist session update:', error);
+      }
+    }
+
     this.emit('query:executed', { session, queryResult });
 
     return queryResult;
@@ -544,13 +859,43 @@ export class RLMContextManager extends EventEmitter {
 
   private async executeSemanticSearch(
     store: ContextStore,
-    params: { query: string; topK?: number }
+    params: { query: string; topK?: number; minSimilarity?: number }
   ): Promise<{ result: string; sectionsAccessed: string[] }> {
-    // Placeholder for embedding-based search
-    // In production, integrate with vector store
-    const { query, topK = 5 } = params;
+    const { query, topK = 5, minSimilarity = 0.5 } = params;
 
-    // Fall back to keyword search for now
+    // Use vector store for semantic search if available
+    if (this.vectorStore) {
+      try {
+        const searchResults = await this.vectorStore.search(store.id, query, {
+          topK,
+          minSimilarity,
+        });
+
+        if (searchResults.length > 0) {
+          const sectionsAccessed: string[] = [];
+          const matches: string[] = [];
+
+          for (const result of searchResults) {
+            const section = store.sections.find(s => s.id === result.entry.sectionId);
+            if (section) {
+              sectionsAccessed.push(section.id);
+              matches.push(
+                `[Similarity: ${(result.similarity * 100).toFixed(1)}%] ${section.name} (${section.type}):\n...${result.entry.contentPreview}...`
+              );
+            }
+          }
+
+          return {
+            result: matches.join('\n\n---\n\n') || 'No matches found.',
+            sectionsAccessed,
+          };
+        }
+      } catch (error) {
+        console.error('[RLM] Semantic search failed, falling back to keyword search:', error);
+      }
+    }
+
+    // Fall back to keyword search if vector store unavailable or returned no results
     const keywords = query
       .toLowerCase()
       .split(/\s+/)
@@ -718,8 +1063,26 @@ export class RLMContextManager extends EventEmitter {
   // ============ Cleanup ============
 
   deleteStore(storeId: string): void {
+    // Delete from database first (cascades to sections, search index, sessions)
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.deleteStore(storeId);
+      } catch (error) {
+        console.error('[RLM] Failed to delete store from database:', error);
+      }
+    }
+
+    // Clear vectors for this store
+    if (this.vectorStore) {
+      try {
+        this.vectorStore.clearStore(storeId);
+      } catch (error) {
+        console.error('[RLM] Failed to clear vectors for store:', error);
+      }
+    }
+
     this.stores.delete(storeId);
-    // Also clean up related sessions
+    // Also clean up related sessions from memory
     for (const [sessionId, session] of this.sessions) {
       if (session.storeId === storeId) {
         this.sessions.delete(sessionId);
@@ -731,6 +1094,15 @@ export class RLMContextManager extends EventEmitter {
   endSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
+      // Mark session as ended in database
+      if (this.db && this.persistenceEnabled) {
+        try {
+          this.db.endSession(sessionId);
+        } catch (error) {
+          console.error('[RLM] Failed to end session in database:', error);
+        }
+      }
+
       this.emit('session:ended', session);
       this.sessions.delete(sessionId);
     }
@@ -752,10 +1124,367 @@ export class RLMContextManager extends EventEmitter {
     if (index === -1) return false;
 
     const section = store.sections[index];
+
+    // Remove from database
+    if (this.db && this.persistenceEnabled) {
+      try {
+        this.db.removeSection(sectionId);
+      } catch (error) {
+        console.error('[RLM] Failed to remove section from database:', error);
+      }
+    }
+
+    // Remove from vector store
+    if (this.vectorStore) {
+      try {
+        this.vectorStore.removeSection(sectionId);
+      } catch (error) {
+        console.error('[RLM] Failed to remove section from vector store:', error);
+      }
+    }
+
     store.sections.splice(index, 1);
     store.totalTokens -= section.tokens;
 
     this.emit('section:removed', { store, section });
     return true;
   }
+
+  /**
+   * Force reload data from persistence layer
+   */
+  reloadFromPersistence(): void {
+    this.stores.clear();
+    this.sessions.clear();
+    this.loadFromPersistence();
+  }
+
+  /**
+   * Get persistence database path for debugging
+   */
+  getDatabasePath(): string | null {
+    return this.db?.getDatabasePath() || null;
+  }
+
+  /**
+   * Get vector store statistics
+   */
+  getVectorStoreStats(): ReturnType<VectorStore['getStats']> | null {
+    return this.vectorStore?.getStats() || null;
+  }
+
+  /**
+   * Index all sections in a store for semantic search
+   */
+  async indexStoreForSemanticSearch(storeId: string): Promise<{ indexed: number; skipped: number } | null> {
+    if (!this.vectorStore) return null;
+
+    const store = this.stores.get(storeId);
+    if (!store) return null;
+
+    const sections = store.sections
+      .filter(s => s.depth === 0) // Only index original sections, not summaries
+      .map(s => ({ id: s.id, content: s.content }));
+
+    return this.vectorStore.indexStore(storeId, sections);
+  }
+
+  /**
+   * Check if semantic search is available
+   */
+  isSemanticSearchAvailable(): boolean {
+    return this.vectorStore !== null;
+  }
+
+  /**
+   * Check if LLM service is available for summarization/sub-queries
+   */
+  async isLLMAvailable(): Promise<boolean> {
+    return this.llmService?.isAvailable() || false;
+  }
+
+  /**
+   * Get LLM service status
+   */
+  getLLMStatus(): ReturnType<LLMService['getProviderStatus']> | null {
+    return this.llmService?.getProviderStatus() || null;
+  }
+
+  /**
+   * Configure LLM service
+   */
+  configureLLM(config: Parameters<LLMService['configure']>[0]): void {
+    this.llmService?.configure(config);
+  }
+
+  // ============================================
+  // Analytics Methods
+  // ============================================
+
+  /**
+   * Get token savings history for analytics
+   */
+  getTokenSavingsHistory(days: number): {
+    date: string;
+    directTokens: number;
+    actualTokens: number;
+    savingsPercent: number;
+  }[] {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const history: Map<string, { direct: number; actual: number }> = new Map();
+
+    // Aggregate from sessions
+    for (const session of this.sessions.values()) {
+      if (session.startedAt < cutoff) continue;
+
+      const date = new Date(session.startedAt).toISOString().split('T')[0];
+      const existing = history.get(date) || { direct: 0, actual: 0 };
+
+      existing.direct += session.estimatedDirectTokens;
+      existing.actual += session.totalRootTokens + session.totalSubQueryTokens;
+      history.set(date, existing);
+    }
+
+    return Array.from(history.entries())
+      .map(([date, data]) => ({
+        date,
+        directTokens: data.direct,
+        actualTokens: data.actual,
+        savingsPercent: data.direct > 0
+          ? ((data.direct - data.actual) / data.direct) * 100
+          : 0,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Get query statistics for analytics
+   */
+  getQueryStats(days: number): {
+    type: string;
+    count: number;
+    avgDuration: number;
+    avgTokens: number;
+  }[] {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const stats: Map<string, { count: number; totalDuration: number; totalTokens: number }> = new Map();
+
+    for (const session of this.sessions.values()) {
+      // Skip sessions that started before the cutoff
+      if (session.startedAt < cutoff) continue;
+
+      for (const queryResult of session.queries) {
+        const queryType = queryResult.query.type;
+        const existing = stats.get(queryType) || { count: 0, totalDuration: 0, totalTokens: 0 };
+        existing.count++;
+        existing.totalDuration += queryResult.duration || 0;
+        existing.totalTokens += queryResult.tokensUsed || 0;
+        stats.set(queryType, existing);
+      }
+    }
+
+    return Array.from(stats.entries())
+      .map(([type, data]) => ({
+        type,
+        count: data.count,
+        avgDuration: data.count > 0 ? data.totalDuration / data.count : 0,
+        avgTokens: data.count > 0 ? data.totalTokens / data.count : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * Get storage statistics for analytics
+   */
+  getStorageStats(): {
+    totalStores: number;
+    totalSections: number;
+    totalTokens: number;
+    totalSizeBytes: number;
+    byType: { type: string; count: number; tokens: number }[];
+  } {
+    let totalSections = 0;
+    let totalTokens = 0;
+    let totalSize = 0;
+    const byType: Map<string, { count: number; tokens: number }> = new Map();
+
+    for (const store of this.stores.values()) {
+      for (const section of store.sections) {
+        totalSections++;
+        totalTokens += section.tokens;
+        totalSize += section.content.length;
+
+        const existing = byType.get(section.type) || { count: 0, tokens: 0 };
+        existing.count++;
+        existing.tokens += section.tokens;
+        byType.set(section.type, existing);
+      }
+    }
+
+    return {
+      totalStores: this.stores.size,
+      totalSections,
+      totalTokens,
+      totalSizeBytes: totalSize,
+      byType: Array.from(byType.entries())
+        .map(([type, data]) => ({ type, ...data }))
+        .sort((a, b) => b.tokens - a.tokens),
+    };
+  }
+
+  // ============================================
+  // Export/Import Methods
+  // ============================================
+
+  /**
+   * Export store to portable format
+   */
+  exportStore(storeId: string): ExportedStore | null {
+    const store = this.stores.get(storeId);
+    if (!store) return null;
+
+    return {
+      version: '1.0',
+      exportedAt: Date.now(),
+      store: {
+        id: store.id,
+        instanceId: store.instanceId,
+        sections: store.sections.map(s => ({
+          id: s.id,
+          type: s.type,
+          name: s.name,
+          content: s.content,
+          tokens: s.tokens,
+          startOffset: s.startOffset,
+          endOffset: s.endOffset,
+          checksum: s.checksum,
+          depth: s.depth,
+          summarizes: s.summarizes,
+          parentSummaryId: s.parentSummaryId,
+          filePath: s.filePath,
+          language: s.language,
+          sourceUrl: s.sourceUrl,
+        })),
+        totalTokens: store.totalTokens,
+        totalSize: store.totalSize,
+        createdAt: store.createdAt,
+        accessCount: store.accessCount,
+      },
+    };
+  }
+
+  /**
+   * Import store from exported format
+   */
+  importStore(data: ExportedStore, options?: {
+    newId?: boolean;
+    merge?: boolean;
+    targetStoreId?: string;
+    instanceId?: string;
+  }): string {
+    const storeId = options?.newId
+      ? `store-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      : options?.targetStoreId || data.store.id;
+
+    if (options?.merge && this.stores.has(storeId)) {
+      // Merge into existing store
+      const existing = this.stores.get(storeId)!;
+      for (const section of data.store.sections) {
+        const exists = existing.sections.some(s => s.id === section.id);
+        if (!exists) {
+          this.addSection(storeId, section.type, section.name, section.content, {
+            filePath: section.filePath,
+            language: section.language,
+            sourceUrl: section.sourceUrl,
+          } as Partial<ContextSection>);
+        }
+      }
+      this.emit('store:imported', { storeId, sectionCount: data.store.sections.length, merged: true });
+      return storeId;
+    }
+
+    // Create new store using the existing createStore method
+    const instanceId = options?.instanceId || data.store.instanceId;
+    const store = this.createStore(instanceId);
+
+    // If newId was requested, use the generated ID
+    // Otherwise, we need to update the store ID
+    if (!options?.newId && storeId !== store.id) {
+      // Remove the auto-generated store and recreate with correct ID
+      this.stores.delete(store.id);
+
+      const newStore: ContextStore = {
+        id: storeId,
+        instanceId,
+        sections: [],
+        totalTokens: 0,
+        totalSize: 0,
+        searchIndex: { terms: new Map(), sectionBoundaries: [], lastRebuilt: Date.now() },
+        accessCount: 0,
+        createdAt: Date.now(),
+        lastAccessed: Date.now(),
+      };
+
+      this.stores.set(storeId, newStore);
+
+      // Persist the store
+      if (this.db && this.persistenceEnabled) {
+        try {
+          this.db.createStore({
+            id: storeId,
+            instanceId,
+          });
+        } catch (error) {
+          console.error('[RLM] Failed to persist imported store:', error);
+        }
+      }
+    }
+
+    const finalStoreId = options?.newId ? store.id : storeId;
+
+    // Add sections
+    for (const section of data.store.sections) {
+      this.addSection(finalStoreId, section.type, section.name, section.content, {
+        filePath: section.filePath,
+        language: section.language,
+        sourceUrl: section.sourceUrl,
+      } as Partial<ContextSection>);
+    }
+
+    this.emit('store:imported', { storeId: finalStoreId, sectionCount: data.store.sections.length, merged: false });
+    return finalStoreId;
+  }
+}
+
+// ============================================
+// Export/Import Types
+// ============================================
+
+export interface ExportedStore {
+  version: string;
+  exportedAt: number;
+  store: {
+    id: string;
+    instanceId: string;
+    sections: Array<{
+      id: string;
+      type: ContextSection['type'];
+      name: string;
+      content: string;
+      tokens: number;
+      startOffset: number;
+      endOffset: number;
+      checksum: string;
+      depth: number;
+      summarizes?: string[];
+      parentSummaryId?: string;
+      filePath?: string;
+      language?: string;
+      sourceUrl?: string;
+    }>;
+    totalTokens: number;
+    totalSize: number;
+    createdAt: number;
+    accessCount: number;
+  };
 }
