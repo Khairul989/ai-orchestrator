@@ -10,12 +10,14 @@ import { MemorySettingsTabComponent } from './memory-settings-tab.component';
 import { DisplaySettingsTabComponent } from './display-settings-tab.component';
 import { AdvancedSettingsTabComponent } from './advanced-settings-tab.component';
 import { KeyboardSettingsTabComponent } from './keyboard-settings-tab.component';
+import { PermissionsSettingsTabComponent } from './permissions-settings-tab.component';
 
 type SettingsTab =
   | 'general'
   | 'orchestration'
   | 'memory'
   | 'display'
+  | 'permissions'
   | 'advanced'
   | 'keyboard';
 
@@ -28,7 +30,8 @@ type SettingsTab =
     MemorySettingsTabComponent,
     DisplaySettingsTabComponent,
     AdvancedSettingsTabComponent,
-    KeyboardSettingsTabComponent
+    KeyboardSettingsTabComponent,
+    PermissionsSettingsTabComponent
   ],
   template: `
     <div class="settings-overlay" (click)="onOverlayClick($event)">
@@ -73,6 +76,13 @@ type SettingsTab =
             </button>
             <button
               class="tab"
+              [class.active]="activeTab() === 'permissions'"
+              (click)="activeTab.set('permissions')"
+            >
+              Permissions
+            </button>
+            <button
+              class="tab"
               [class.active]="activeTab() === 'advanced'"
               (click)="activeTab.set('advanced')"
             >
@@ -101,6 +111,9 @@ type SettingsTab =
               }
               @case ('display') {
                 <app-display-settings-tab />
+              }
+              @case ('permissions') {
+                <app-permissions-settings-tab />
               }
               @case ('advanced') {
                 <app-advanced-settings-tab />

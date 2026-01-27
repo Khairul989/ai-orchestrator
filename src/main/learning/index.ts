@@ -8,3 +8,5 @@ export * from './strategy-learner';
 export * from './ab-testing';
 export * from './prompt-enhancer';
 export * from './grpo-trainer';
+export * from './habit-tracker';
+export * from './preference-store';

@@ -1,10 +1,20 @@
 /**
  * Instance Context Manager - RLM and Unified Memory context building
+ *
+ * Enhanced with Just-in-Time context loading for efficient resource management.
  */
 
 import { RLMContextManager } from '../rlm/context-manager';
 import { getUnifiedMemory } from '../memory';
 import { getSettingsManager } from '../core/config/settings-manager';
+import {
+  JITContextLoader,
+  getJITLoader,
+  ResourceIdentifier,
+  LoadedResource,
+  FileSystemLoader,
+  MemoryStoreLoader,
+} from '../context/jit-loader';
 import type {
   ContextQuery,
   ContextSection,
@@ -75,14 +85,47 @@ export class InstanceContextManager {
   private unifiedMemory = getUnifiedMemory();
   private settings = getSettingsManager();
   private config: ContextConfig;
+  private jitLoader: JITContextLoader;
 
   // Instance to RLM store/session mappings
   private instanceRlmStores: Map<string, string> = new Map();
   private instanceRlmSessions: Map<string, string> = new Map();
 
+  // Instance to registered JIT resources
+  private instanceResources: Map<string, Set<string>> = new Map();
+
   constructor(config: Partial<ContextConfig> = {}) {
     this.config = { ...DEFAULT_CONTEXT_CONFIG, ...config };
     this.rlm = RLMContextManager.getInstance();
+    this.jitLoader = getJITLoader();
+    this.initializeJITLoaders();
+  }
+
+  /**
+   * Initialize default JIT loaders
+   */
+  private initializeJITLoaders(): void {
+    // Register file system loader
+    this.jitLoader.registerLoader('file', new FileSystemLoader());
+
+    // Register memory loader (integrates with unified memory)
+    this.jitLoader.registerLoader('memory', new MemoryStoreLoader(
+      async (query: string) => {
+        const result = await this.unifiedMemory.retrieve(query, 'jit-load', {
+          types: ['long_term', 'procedural'],
+          maxTokens: 2000,
+        });
+        if (!result) return null;
+        const parts: string[] = [];
+        if (result.procedural.length > 0) {
+          parts.push(...result.procedural);
+        }
+        if (result.longTerm.length > 0) {
+          parts.push(...result.longTerm);
+        }
+        return parts.length > 0 ? parts.join('\n') : null;
+      }
+    ));
   }
 
   // ============================================
@@ -583,6 +626,264 @@ export class InstanceContextManager {
           error
         );
       });
+  }
+
+  // ============================================
+  // JIT Context Loading
+  // ============================================
+
+  /**
+   * Register a file for JIT loading
+   */
+  registerFileResource(
+    instanceId: string,
+    filePath: string,
+    metadata?: { language?: string; estimatedTokens?: number }
+  ): string {
+    const resourceId = `file:${instanceId}:${filePath}`;
+    const identifier: ResourceIdentifier = {
+      id: resourceId,
+      type: 'file',
+      path: filePath,
+      metadata: {
+        language: metadata?.language,
+        estimatedTokens: metadata?.estimatedTokens,
+      },
+    };
+
+    this.jitLoader.register(identifier);
+    this.trackInstanceResource(instanceId, resourceId);
+
+    return resourceId;
+  }
+
+  /**
+   * Register a URL for JIT loading
+   */
+  registerUrlResource(
+    instanceId: string,
+    url: string,
+    metadata?: { mimeType?: string; estimatedTokens?: number }
+  ): string {
+    const resourceId = `url:${instanceId}:${url}`;
+    const identifier: ResourceIdentifier = {
+      id: resourceId,
+      type: 'url',
+      path: url,
+      metadata: {
+        mimeType: metadata?.mimeType,
+        estimatedTokens: metadata?.estimatedTokens,
+      },
+    };
+
+    this.jitLoader.register(identifier);
+    this.trackInstanceResource(instanceId, resourceId);
+
+    return resourceId;
+  }
+
+  /**
+   * Register a memory query for JIT loading
+   */
+  registerMemoryResource(
+    instanceId: string,
+    query: string,
+    metadata?: { estimatedTokens?: number }
+  ): string {
+    const resourceId = `memory:${instanceId}:${query.substring(0, 50)}`;
+    const identifier: ResourceIdentifier = {
+      id: resourceId,
+      type: 'memory',
+      path: query,
+      metadata: {
+        estimatedTokens: metadata?.estimatedTokens,
+      },
+    };
+
+    this.jitLoader.register(identifier);
+    this.trackInstanceResource(instanceId, resourceId);
+
+    return resourceId;
+  }
+
+  /**
+   * Load a resource on demand
+   */
+  async loadResource(resourceId: string): Promise<LoadedResource | null> {
+    return this.jitLoader.load(resourceId);
+  }
+
+  /**
+   * Load multiple resources in parallel
+   */
+  async loadResources(resourceIds: string[]): Promise<Map<string, LoadedResource | null>> {
+    return this.jitLoader.loadBatch(resourceIds);
+  }
+
+  /**
+   * Check if a resource is cached
+   */
+  isResourceCached(resourceId: string): boolean {
+    return this.jitLoader.isCached(resourceId);
+  }
+
+  /**
+   * Prefetch resources that might be needed soon
+   */
+  async prefetchResources(resourceIds: string[]): Promise<void> {
+    return this.jitLoader.prefetch(resourceIds);
+  }
+
+  /**
+   * Get related resources based on access patterns
+   */
+  getRelatedResources(resourceId: string, limit: number = 5): string[] {
+    return this.jitLoader.getRelatedResources(resourceId, limit);
+  }
+
+  /**
+   * Invalidate a cached resource
+   */
+  invalidateResource(resourceId: string): void {
+    this.jitLoader.invalidate(resourceId);
+  }
+
+  /**
+   * Invalidate all resources for an instance
+   */
+  invalidateInstanceResources(instanceId: string): void {
+    const resources = this.instanceResources.get(instanceId);
+    if (resources) {
+      this.jitLoader.invalidateBatch(Array.from(resources));
+    }
+  }
+
+  /**
+   * Get JIT loader statistics
+   */
+  getJITStats(): ReturnType<JITContextLoader['getStats']> {
+    return this.jitLoader.getStats();
+  }
+
+  /**
+   * Build context with JIT-loaded resources
+   *
+   * This method loads resources on demand and builds context
+   * based on relevance to the query.
+   */
+  async buildJITContext(
+    instanceId: string,
+    query: string,
+    maxTokens: number = 2000
+  ): Promise<{
+    context: string | null;
+    tokens: number;
+    resourcesLoaded: number;
+    cacheHits: number;
+  }> {
+    const resources = this.instanceResources.get(instanceId);
+    if (!resources || resources.size === 0) {
+      return { context: null, tokens: 0, resourcesLoaded: 0, cacheHits: 0 };
+    }
+
+    // Get related resources based on query
+    const queryTerms = this.extractQueryTerms(query);
+    const resourceIds = Array.from(resources);
+
+    // Score resources by relevance to query
+    const scored: Array<{ id: string; score: number }> = [];
+    for (const id of resourceIds) {
+      const identifier = this.jitLoader.getIdentifier(id);
+      if (!identifier) continue;
+
+      // Simple relevance scoring based on path/query overlap
+      const pathTerms = this.extractQueryTerms(identifier.path);
+      const overlap = this.computeSetOverlap(queryTerms, pathTerms);
+      scored.push({ id, score: overlap });
+    }
+
+    // Sort by relevance
+    scored.sort((a, b) => b.score - a.score);
+
+    // Load top resources within token budget
+    const toLoad = scored.slice(0, 10).map(s => s.id);
+    const loadedMap = await this.loadResources(toLoad);
+
+    let usedTokens = 0;
+    let cacheHits = 0;
+    const parts: string[] = [];
+
+    for (const [id, resource] of loadedMap) {
+      if (!resource) continue;
+
+      if (usedTokens + resource.tokens > maxTokens) {
+        // Truncate last resource if needed
+        const remaining = maxTokens - usedTokens;
+        if (remaining > 100) {
+          const truncated = this.trimToTokens(resource.content, remaining);
+          parts.push(`[Resource: ${resource.identifier.path}]\n${truncated}`);
+          usedTokens += remaining;
+        }
+        break;
+      }
+
+      parts.push(`[Resource: ${resource.identifier.path}]\n${resource.content}`);
+      usedTokens += resource.tokens;
+
+      if (resource.source === 'cache') {
+        cacheHits++;
+      }
+    }
+
+    if (parts.length === 0) {
+      return { context: null, tokens: 0, resourcesLoaded: 0, cacheHits: 0 };
+    }
+
+    return {
+      context: parts.join('\n\n---\n\n'),
+      tokens: usedTokens,
+      resourcesLoaded: parts.length,
+      cacheHits,
+    };
+  }
+
+  /**
+   * Clean up JIT resources for an instance
+   */
+  cleanupInstanceJIT(instanceId: string): void {
+    const resources = this.instanceResources.get(instanceId);
+    if (resources) {
+      this.jitLoader.invalidateBatch(Array.from(resources));
+      this.instanceResources.delete(instanceId);
+    }
+  }
+
+  /**
+   * Track resource registration for an instance
+   */
+  private trackInstanceResource(instanceId: string, resourceId: string): void {
+    let resources = this.instanceResources.get(instanceId);
+    if (!resources) {
+      resources = new Set();
+      this.instanceResources.set(instanceId, resources);
+    }
+    resources.add(resourceId);
+  }
+
+  /**
+   * Compute set overlap ratio (Jaccard similarity)
+   */
+  private computeSetOverlap(set1: string[], set2: string[]): number {
+    const s1 = new Set(set1);
+    const s2 = new Set(set2);
+    let intersection = 0;
+
+    for (const item of s1) {
+      if (s2.has(item)) intersection++;
+    }
+
+    const union = s1.size + s2.size - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 
   // ============================================

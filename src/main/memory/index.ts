@@ -60,3 +60,11 @@ export type {
 
 // Memory-R1 Manager
 export { MemoryManagerAgent, getMemoryManager } from './r1-memory-manager';
+
+// Hybrid Retrieval
+export { HybridRetrievalManager } from './hybrid-retrieval';
+export type {
+  HybridRetrievalConfig,
+  ScoredRetrievalResult,
+  TrajectoryRecord,
+} from './hybrid-retrieval';

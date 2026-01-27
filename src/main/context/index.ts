@@ -5,3 +5,4 @@
  */
 
 export * from './context-compactor';
+export * from './jit-loader';

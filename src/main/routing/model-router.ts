@@ -103,16 +103,59 @@ export interface RoutingDecision {
   reason: string;
   /** Estimated cost savings vs always using powerful model */
   estimatedSavingsPercent?: number;
+  /** Detailed explanation for UI display */
+  explanation?: RoutingExplanation;
+}
+
+/**
+ * Detailed routing explanation for UI display
+ */
+export interface RoutingExplanation {
+  /** Summary of the decision */
+  summary: string;
+  /** Detected task complexity with color hint */
+  complexityDisplay: {
+    level: TaskComplexity;
+    label: string;
+    color: 'success' | 'warning' | 'info';
+  };
+  /** Confidence as percentage */
+  confidencePercent: number;
+  /** Matched keywords that influenced the decision */
+  matchedKeywords: {
+    keyword: string;
+    type: 'complex' | 'simple';
+  }[];
+  /** Analysis factors that influenced the decision */
+  factors: {
+    description: string;
+    impact: 'increases_complexity' | 'decreases_complexity' | 'neutral';
+  }[];
+  /** Alternative routing options */
+  alternatives: {
+    model: string;
+    tier: ModelTier;
+    reason: string;
+  }[];
+  /** Cost comparison */
+  costComparison: {
+    selectedTier: ModelTier;
+    selectedCostMultiplier: number;
+    savingsVsPowerful: number;
+    savingsVsBalanced: number;
+  };
 }
 
 /**
  * Task analysis result
  */
-interface TaskAnalysis {
+export interface TaskAnalysis {
   complexity: TaskComplexity;
   confidence: number;
   matchedKeywords: string[];
   factors: string[];
+  complexScore: number;
+  simpleScore: number;
 }
 
 /**
@@ -161,7 +204,7 @@ export class ModelRouter {
     // Calculate estimated savings
     const estimatedSavingsPercent = this.calculateSavings(tier);
 
-    return {
+    const decision: RoutingDecision = {
       model,
       complexity: analysis.complexity,
       tier,
@@ -169,6 +212,11 @@ export class ModelRouter {
       reason: this.buildReason(analysis),
       estimatedSavingsPercent,
     };
+
+    // Add detailed explanation
+    decision.explanation = this.getRoutingExplanation(task, decision);
+
+    return decision;
   }
 
   /**
@@ -187,6 +235,8 @@ export class ModelRouter {
         confidence: 0.9,
         matchedKeywords: [],
         factors: ['Task description very short'],
+        complexScore: 0,
+        simpleScore: 1,
       };
     }
 
@@ -265,6 +315,101 @@ export class ModelRouter {
       confidence,
       matchedKeywords,
       factors,
+      complexScore,
+      simpleScore,
+    };
+  }
+
+  /**
+   * Get detailed task analysis (public method for UI)
+   */
+  getTaskAnalysis(task: string): TaskAnalysis {
+    return this.analyzeTask(task);
+  }
+
+  /**
+   * Get detailed routing explanation for UI display
+   */
+  getRoutingExplanation(task: string, decision: RoutingDecision): RoutingExplanation {
+    const analysis = this.analyzeTask(task);
+
+    // Build complexity display
+    const complexityDisplay = {
+      level: analysis.complexity,
+      label: analysis.complexity.charAt(0).toUpperCase() + analysis.complexity.slice(1),
+      color: analysis.complexity === 'simple' ? 'success' as const :
+             analysis.complexity === 'complex' ? 'warning' as const : 'info' as const,
+    };
+
+    // Build matched keywords with types
+    const matchedKeywords = analysis.matchedKeywords.map(keyword => ({
+      keyword,
+      type: this.config.complexKeywords.some(k => k.toLowerCase() === keyword.toLowerCase())
+        ? 'complex' as const
+        : 'simple' as const,
+    }));
+
+    // Build factors with impact
+    const factors = analysis.factors.map(desc => {
+      let impact: 'increases_complexity' | 'decreases_complexity' | 'neutral' = 'neutral';
+      if (desc.toLowerCase().includes('complex') || desc.includes('>')) {
+        impact = 'increases_complexity';
+      } else if (desc.toLowerCase().includes('simple') || desc.includes('<')) {
+        impact = 'decreases_complexity';
+      }
+      return { description: desc, impact };
+    });
+
+    // Build alternatives
+    const alternatives: RoutingExplanation['alternatives'] = [];
+    const tiers: ModelTier[] = ['fast', 'balanced', 'powerful'];
+
+    for (const tier of tiers) {
+      if (tier === decision.tier) continue;
+
+      const tierModel = tier === 'fast' ? this.config.fastModel :
+                        tier === 'balanced' ? this.config.balancedModel :
+                        this.config.powerfulModel;
+
+      const reason = tier === 'fast' ? 'Lower cost, faster response, may miss nuance' :
+                     tier === 'balanced' ? 'Good balance of cost and capability' :
+                     'Maximum capability, higher cost';
+
+      alternatives.push({ model: tierModel, tier, reason });
+    }
+
+    // Build cost comparison
+    const tierMultipliers: Record<ModelTier, number> = {
+      fast: 0.2,
+      balanced: 0.6,
+      powerful: 1.0,
+    };
+
+    const selectedMultiplier = tierMultipliers[decision.tier];
+    const costComparison = {
+      selectedTier: decision.tier,
+      selectedCostMultiplier: selectedMultiplier,
+      savingsVsPowerful: Math.round((1 - selectedMultiplier) * 100),
+      savingsVsBalanced: decision.tier === 'fast'
+        ? Math.round((1 - selectedMultiplier / 0.6) * 100)
+        : 0,
+    };
+
+    // Build summary
+    const summary = `Using ${decision.tier} tier model (${decision.model}) for ${analysis.complexity} task. ` +
+      `Confidence: ${Math.round(analysis.confidence * 100)}%. ` +
+      (costComparison.savingsVsPowerful > 0
+        ? `Saving ~${costComparison.savingsVsPowerful}% vs powerful model.`
+        : 'Using most capable model.');
+
+    return {
+      summary,
+      complexityDisplay,
+      confidencePercent: Math.round(analysis.confidence * 100),
+      matchedKeywords,
+      factors,
+      alternatives,
+      costComparison,
     };
   }
 

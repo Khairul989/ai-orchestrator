@@ -16,3 +16,15 @@ export {
   type TaskComplexity,
   type ModelTier,
 } from './model-router';
+
+export {
+  HotModelSwitcher,
+  getHotModelSwitcher,
+  DEFAULT_HOT_SWITCHER_CONFIG,
+  type HotSwitcherConfig,
+  type ConversationState,
+  type ConversationMessage,
+  type SwitchRequest,
+  type SwitchResult,
+  type ProviderTransformer,
+} from './hot-model-switcher';

@@ -70,3 +70,31 @@ export {
 
 // Debate coordination
 export { DebateCoordinator, getDebateCoordinator } from './debate-coordinator';
+
+// Voting system
+export { VotingSystem, getVotingSystem } from './voting';
+export type {
+  VotingStrategy,
+  VotingSystemConfig,
+  Ballot,
+  BallotOption,
+  Vote,
+  VoteTally,
+  VotingResult,
+  VotingHistory,
+  CreateBallotOptions,
+  VotingStats,
+} from './voting';
+
+// Consensus mechanisms
+export { ConsensusManager, getConsensusManager } from './consensus';
+export type {
+  ConsensusConfig,
+  ConsensusAlgorithm,
+  ConsensusProposal,
+  ConsensusOption,
+  ConsensusVote,
+  ConsensusResult,
+  LeaderElectionResult,
+  ConsensusStats,
+} from './consensus';
