@@ -197,6 +197,12 @@ export interface AttachmentDisplay {
     .message-user .file-attachment {
       background: rgba(255, 255, 255, 0.15);
       border-color: rgba(255, 255, 255, 0.2);
+      color: #1a1a1a;
+    }
+
+    .message-user .file-attachment .file-name,
+    .message-user .file-attachment .file-size {
+      color: #1a1a1a;
     }
 
     .file-icon {

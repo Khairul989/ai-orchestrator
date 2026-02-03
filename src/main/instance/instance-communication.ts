@@ -60,15 +60,35 @@ export class InstanceCommunicationManager extends EventEmitter {
     const instance = this.deps.getInstance(instanceId);
     const adapter = this.deps.getAdapter(instanceId);
 
-    console.log(`[InstanceCommunicationManager] Instance exists: ${!!instance}, Adapter exists: ${!!adapter}`);
+    console.log(`[InstanceCommunicationManager] Instance exists: ${!!instance}, Adapter exists: ${!!adapter}, Status: ${instance?.status}`);
 
-    if (!adapter) {
-      console.error(`[InstanceCommunicationManager] No adapter found for ${instanceId}`);
+    // Check instance exists first
+    if (!instance) {
+      console.error(`[InstanceCommunicationManager] Instance ${instanceId} not found in state`);
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    if (instance?.status === 'error') {
+    // Check instance status for better error messages
+    if (instance.status === 'error') {
       throw new Error(`Instance ${instanceId} is in error state and cannot accept input`);
+    }
+
+    if (instance.status === 'terminated') {
+      throw new Error(`Instance ${instanceId} has been terminated`);
+    }
+
+    if (instance.status === 'respawning') {
+      throw new Error(`Instance ${instanceId} is respawning after interrupt. Please wait for it to be ready.`);
+    }
+
+    // Now check adapter
+    if (!adapter) {
+      console.error(`[InstanceCommunicationManager] No adapter found for ${instanceId} (status: ${instance.status})`);
+      // Instance exists but adapter is missing - this is a bug state
+      // Mark instance as error to prevent further confusion
+      instance.status = 'error';
+      this.deps.queueUpdate(instanceId, 'error');
+      throw new Error(`Instance ${instanceId} is in an inconsistent state (no adapter). Please restart the instance.`);
     }
 
     const finalMessage = contextBlock ? `${contextBlock}\n\n${message}` : message;
@@ -86,15 +106,22 @@ export class InstanceCommunicationManager extends EventEmitter {
     response: string,
     permissionKey?: string
   ): Promise<void> {
+    const instance = this.deps.getInstance(instanceId);
     const adapter = this.deps.getAdapter(instanceId);
-    if (!adapter) {
+
+    if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    const instance = this.deps.getInstance(instanceId);
-    if (instance) {
-      instance.lastActivity = Date.now();
+    if (!adapter) {
+      // Instance exists but adapter is missing
+      if (instance.status === 'respawning') {
+        throw new Error(`Instance ${instanceId} is respawning. Please wait for it to be ready.`);
+      }
+      throw new Error(`Instance ${instanceId} is in an inconsistent state. Please restart the instance.`);
     }
+
+    instance.lastActivity = Date.now();
 
     console.log(`InstanceCommunicationManager: Sending input response to ${instanceId}: ${response}`);
     if (permissionKey) {
@@ -201,16 +228,24 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     adapter.on('error', (error: Error) => {
       const instance = this.deps.getInstance(instanceId);
+      console.error(`Instance ${instanceId} error (status: ${instance?.status}):`, error);
+
       if (instance) {
         instance.errorCount++;
-        instance.status = 'error';
-        this.deps.queueUpdate(instanceId, 'error');
-      }
-      console.error(`Instance ${instanceId} error:`, error);
 
-      this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
-        console.error(`Failed to cleanup adapter for ${instanceId} after error:`, cleanupErr);
-      });
+        // Don't mark as error if we're in the middle of respawning - let respawnAfterInterrupt handle it
+        if (instance.status !== 'respawning') {
+          instance.status = 'error';
+          this.deps.queueUpdate(instanceId, 'error');
+
+          // Only force cleanup if not respawning - during respawn the lifecycle manager handles cleanup
+          this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
+            console.error(`Failed to cleanup adapter for ${instanceId} after error:`, cleanupErr);
+          });
+        } else {
+          console.log(`Instance ${instanceId} error during respawning - skipping force cleanup, letting lifecycle handle it`);
+        }
+      }
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {
