@@ -7,7 +7,7 @@
  * - Expandable details showing tier distribution
  */
 
-import { Component, signal, effect, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, signal, effect, computed, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 interface ElectronAPI {
@@ -55,6 +55,7 @@ export interface CompactionStatus {
   selector: 'app-compaction-indicator',
   standalone: true,
   imports: [CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       class="compaction-indicator"

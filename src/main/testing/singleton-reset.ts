@@ -89,3 +89,35 @@ export function getResettableCount(): number {
 export function clearResettableRegistry(): void {
   resettableRegistry.clear();
 }
+
+// Import all singletons with _resetForTesting methods
+import { SupervisorTree } from '../process/supervisor-tree';
+import { EmbeddingService } from '../orchestration/embedding-service';
+import { DebateCoordinator } from '../orchestration/debate-coordinator';
+import { MultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
+
+/**
+ * Reset all known singletons by directly calling their _resetForTesting methods.
+ * This is an alternative to the registry pattern above.
+ *
+ * Usage in tests:
+ * ```typescript
+ * import { resetAllSingletonsForTesting } from '../testing/singleton-reset';
+ *
+ * beforeEach(() => {
+ *   resetAllSingletonsForTesting();
+ * });
+ * ```
+ *
+ * Currently resets:
+ * - SupervisorTree
+ * - EmbeddingService (orchestration)
+ * - DebateCoordinator
+ * - MultiVerifyCoordinator
+ */
+export function resetAllSingletonsForTesting(): void {
+  SupervisorTree._resetForTesting();
+  EmbeddingService._resetForTesting();
+  DebateCoordinator._resetForTesting();
+  MultiVerifyCoordinator._resetForTesting();
+}

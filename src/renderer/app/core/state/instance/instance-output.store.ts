@@ -22,6 +22,11 @@ export class InstanceOutputStore {
    * Queue output message with throttling (100ms batches)
    */
   queueOutput(instanceId: string, message: OutputMessage): void {
+    // Filter out empty messages (defense-in-depth)
+    if (!this.hasContent(message)) {
+      return;
+    }
+
     const { outputThrottleTimers, pendingOutputMessages } = this.stateService;
 
     // Add to pending messages
@@ -142,5 +147,29 @@ export class InstanceOutputStore {
     }
     this.stateService.outputThrottleTimers.clear();
     this.stateService.pendingOutputMessages.clear();
+  }
+
+  // ============================================
+  // Private Helpers
+  // ============================================
+
+  /**
+   * Check if a message has meaningful content to display
+   */
+  private hasContent(message: OutputMessage): boolean {
+    // Tool messages can have metadata as their primary content
+    if (message.type === 'tool_use' || message.type === 'tool_result') {
+      return !!message.metadata || !!message.content;
+    }
+    // Messages with attachments are valid even without text
+    if (message.attachments && message.attachments.length > 0) {
+      return true;
+    }
+    // Messages with thinking content are valid even without text response
+    if (message.thinking && message.thinking.length > 0) {
+      return true;
+    }
+    // For all other messages, check for non-empty content
+    return !!message.content?.trim();
   }
 }

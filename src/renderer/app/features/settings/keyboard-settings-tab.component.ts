@@ -2,7 +2,7 @@
  * Keyboard Settings Tab Component - Displays keyboard shortcuts
  */
 
-import { Component, inject, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, computed } from '@angular/core';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import type { KeyBinding } from '../../../../shared/types/keybinding.types';
 
@@ -14,6 +14,7 @@ interface KeybindingCategory {
 @Component({
   selector: 'app-keyboard-settings-tab',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="keyboard-shortcuts-section">
       <p class="keyboard-intro">

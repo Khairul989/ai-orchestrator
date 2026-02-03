@@ -2,7 +2,7 @@
  * General Settings Tab Component - General application preferences
  */
 
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
@@ -11,6 +11,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
   selector: 'app-general-settings-tab',
   standalone: true,
   imports: [SettingRowComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (setting of store.generalSettings(); track setting.key) {
       <app-setting-row

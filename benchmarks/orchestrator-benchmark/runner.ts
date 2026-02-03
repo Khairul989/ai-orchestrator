@@ -10,7 +10,9 @@
  *   npx ts-node runner.ts --report <session> # Generate report for session
  */
 
-import { resolve } from 'path';
+import { resolve, join } from 'path';
+import { execSync } from 'child_process';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import { loadTaskSuite, loadTask } from './task-loader.js';
 import { executeVanilla } from './executors/vanilla-executor.js';
 import { executeOrchestrator } from './executors/orchestrator-executor.js';
@@ -40,6 +42,7 @@ import type {
 const RUNS_PER_CONFIG = 3;
 const CONTEXT_STAGES: ContextStage[] = ['fresh', 'moderate', 'heavy'];
 const SYSTEMS: SystemType[] = ['vanilla', 'orchestrator'];
+const WORKTREE_BASE = '/tmp/bench-worktrees';
 
 interface RunnerOptions {
   taskId?: string;
@@ -50,6 +53,122 @@ interface RunnerOptions {
   dryRun?: boolean;
   skipScoring?: boolean;
   scoreOnly?: boolean;
+  noIsolation?: boolean;
+}
+
+/**
+ * Represents a single benchmark run configuration
+ */
+interface RunConfig {
+  task: BenchmarkTask;
+  system: SystemType;
+  stage: ContextStage;
+  runNumber: 1 | 2 | 3;
+}
+
+/**
+ * Fisher-Yates shuffle for randomizing run order
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/**
+ * Generate all run configurations and randomize order
+ */
+function generateRunConfigs(
+  tasks: BenchmarkTask[],
+  systems: SystemType[]
+): RunConfig[] {
+  const configs: RunConfig[] = [];
+
+  for (const task of tasks) {
+    for (const system of systems) {
+      for (const stage of CONTEXT_STAGES) {
+        for (let runNum = 1; runNum <= RUNS_PER_CONFIG; runNum++) {
+          configs.push({
+            task,
+            system,
+            stage,
+            runNumber: runNum as 1 | 2 | 3,
+          });
+        }
+      }
+    }
+  }
+
+  // Randomize to reduce drift bias
+  return shuffleArray(configs);
+}
+
+/**
+ * Create an isolated git worktree for a benchmark run
+ * Uses execSync with fixed commands (no user input) for git worktree operations
+ */
+function createWorktree(sessionId: string, runIndex: number): string {
+  const worktreePath = join(WORKTREE_BASE, `${sessionId}-run${runIndex}`);
+
+  // Ensure base directory exists
+  if (!existsSync(WORKTREE_BASE)) {
+    mkdirSync(WORKTREE_BASE, { recursive: true });
+  }
+
+  // Remove existing worktree if present
+  if (existsSync(worktreePath)) {
+    try {
+      // Safe: worktreePath is constructed from sessionId (generated internally) and runIndex (number)
+      execSync(`git worktree remove "${worktreePath}" --force`, { stdio: 'pipe' });
+    } catch {
+      // May not be a worktree, just remove directory
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  }
+
+  // Create new worktree
+  try {
+    // Safe: worktreePath is constructed from internal values only
+    execSync(`git worktree add "${worktreePath}" HEAD --detach`, { stdio: 'pipe' });
+    console.log(`  [ISOLATION] Created worktree: ${worktreePath}`);
+    return worktreePath;
+  } catch (err) {
+    console.warn(`  [ISOLATION] Failed to create worktree, using fallback: ${err}`);
+    return '';  // Empty string signals fallback needed
+  }
+}
+
+/**
+ * Remove a git worktree after use
+ */
+function removeWorktree(worktreePath: string): void {
+  if (!worktreePath) return;
+
+  try {
+    // Safe: worktreePath comes from createWorktree which constructs it internally
+    execSync(`git worktree remove "${worktreePath}" --force`, { stdio: 'pipe' });
+  } catch {
+    // Fallback to direct removal
+    try {
+      rmSync(worktreePath, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup failures
+    }
+  }
+}
+
+/**
+ * Reset repository to clean state (fallback isolation method)
+ */
+function resetRepository(): void {
+  try {
+    execSync('git stash --include-untracked', { stdio: 'pipe' });
+  } catch {
+    // No changes to stash, continue
+  }
 }
 
 /**
@@ -94,6 +213,9 @@ function parseArgs(): RunnerOptions {
         options.sessionId = next;
         i++;
         break;
+      case '--no-isolation':
+        options.noIsolation = true;
+        break;
       case '--help':
         printHelp();
         process.exit(0);
@@ -119,6 +241,7 @@ Options:
   --dry-run             Show what would run without executing
   --skip-scoring        Skip scoring/judging after runs complete
   --score-only <session> Score an existing session without re-running
+  --no-isolation        Disable git worktree isolation between runs
   --help                Show this help message
 
 Examples:
@@ -202,59 +325,81 @@ async function main(): Promise<void> {
     return true;
   });
 
-  const totalRuns = tasks.length * systemsToRun.length * CONTEXT_STAGES.length * RUNS_PER_CONFIG;
+  // Generate randomized run order
+  const runConfigs = generateRunConfigs(tasks, systemsToRun);
+  const totalRuns = runConfigs.length;
+
   console.log(`\nPlanned runs: ${totalRuns}`);
   console.log(`Tasks: ${tasks.length}`);
   console.log(`Systems: ${systemsToRun.join(', ')}`);
   console.log(`Context stages: ${CONTEXT_STAGES.join(', ')}`);
-  console.log(`Runs per config: ${RUNS_PER_CONFIG}\n`);
+  console.log(`Runs per config: ${RUNS_PER_CONFIG}`);
+  console.log(`Run order: RANDOMIZED (to reduce drift bias)`);
+  console.log(`Isolation: ${options.noIsolation ? 'DISABLED' : 'git worktree per run'}\n`);
 
   if (options.dryRun) {
     console.log('Dry run mode - not executing tasks');
     printRunPlan(tasks, systemsToRun);
+    console.log('\nRandomized execution order (first 10):');
+    for (let i = 0; i < Math.min(10, runConfigs.length); i++) {
+      const cfg = runConfigs[i];
+      console.log(`  ${i + 1}. ${cfg.task.id}/${cfg.system}/${cfg.stage}/run${cfg.runNumber}`);
+    }
+    if (runConfigs.length > 10) {
+      console.log(`  ... and ${runConfigs.length - 10} more`);
+    }
     return;
   }
 
-  // Execute benchmark runs
+  // Execute benchmark runs in randomized order
   let completed = 0;
   let skipped = 0;
   let failed = 0;
 
-  for (const task of tasks) {
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`Task: ${task.id} - ${task.name}`);
-    console.log(`${'='.repeat(60)}`);
+  for (let i = 0; i < runConfigs.length; i++) {
+    const { task, system, stage, runNumber } = runConfigs[i];
 
-    for (const system of systemsToRun) {
-      for (const stage of CONTEXT_STAGES) {
-        for (let runNum = 1; runNum <= RUNS_PER_CONFIG; runNum++) {
-          const runNumber = runNum as 1 | 2 | 3;
+    console.log(`\n[${i + 1}/${totalRuns}] ${task.id}/${system}/${stage}/run${runNumber}`);
 
-          // Check if already completed
-          if (isRunComplete(sessionId, task.id, system, stage, runNumber)) {
-            console.log(`  [SKIP] ${system}/${stage}/run${runNumber} - already complete`);
-            skipped++;
-            continue;
-          }
+    // Check if already completed
+    if (isRunComplete(sessionId, task.id, system, stage, runNumber)) {
+      console.log(`  [SKIP] Already complete`);
+      skipped++;
+      continue;
+    }
 
-          console.log(`  [RUN] ${system}/${stage}/run${runNumber}...`);
+    // Create isolated worktree for this run (unless disabled)
+    let worktreePath = '';
+    let workingDir = resolve(task.workingDirectory);
 
-          try {
-            const run = await executeBenchmarkRun(task, system, stage, runNumber);
-            saveRun(sessionId, run);
-            completed++;
+    if (!options.noIsolation) {
+      worktreePath = createWorktree(sessionId, i);
+      if (worktreePath) {
+        workingDir = worktreePath;
+      } else {
+        // Fallback: reset repository
+        resetRepository();
+      }
+    }
 
-            const status = run.error ? `ERROR: ${run.error}` : `OK (${run.durationMs}ms)`;
-            console.log(`        ${status}`);
+    try {
+      const run = await executeBenchmarkRun(task, system, stage, runNumber, workingDir);
+      saveRun(sessionId, run);
+      completed++;
 
-            if (run.error) {
-              failed++;
-            }
-          } catch (err) {
-            console.error(`        FAILED: ${err}`);
-            failed++;
-          }
-        }
+      const status = run.error ? `ERROR: ${run.error}` : `OK (${run.durationMs}ms)`;
+      console.log(`  ${status}`);
+
+      if (run.error) {
+        failed++;
+      }
+    } catch (err) {
+      console.error(`  FAILED: ${err}`);
+      failed++;
+    } finally {
+      // Clean up worktree
+      if (worktreePath) {
+        removeWorktree(worktreePath);
       }
     }
   }
@@ -408,23 +553,28 @@ async function scoreRealCodebaseTask(sessionId: string, task: BenchmarkTask): Pr
 
 /**
  * Execute a single benchmark run
+ * @param workingDirectory - Optional isolated working directory (worktree path)
  */
 async function executeBenchmarkRun(
   task: BenchmarkTask,
   system: SystemType,
   contextStage: ContextStage,
-  runNumber: 1 | 2 | 3
+  runNumber: 1 | 2 | 3,
+  workingDirectory?: string
 ): Promise<BenchmarkRun> {
   const startedAt = Date.now();
-  const workingDirectory = resolve(task.workingDirectory);
+  const cwd = workingDirectory || resolve(task.workingDirectory);
 
   // Generate context for this stage
-  const contextResult = generateContext(contextStage, workingDirectory);
+  const contextResult = generateContext(contextStage, cwd);
   const contextMessages = contextMessagesToStrings(contextResult.messages);
+
+  // Create a modified task with the isolated working directory
+  const isolatedTask = { ...task, workingDirectory: cwd };
 
   // Execute based on system type
   const executor = system === 'vanilla' ? executeVanilla : executeOrchestrator;
-  const result = await executor(task, { contextMessages });
+  const result = await executor(isolatedTask, { contextMessages });
 
   return {
     taskId: task.id,
@@ -432,7 +582,6 @@ async function executeBenchmarkRun(
     contextStage,
     runNumber,
     output: result.output,
-    filesExamined: result.filesExamined,
     tokensUsed: result.tokensUsed,
     durationMs: result.durationMs,
     startedAt,

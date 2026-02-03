@@ -16,6 +16,18 @@ import type {
   WatcherClearBufferPayload,
   MultiEditPayload
 } from '../../../shared/types/ipc.types';
+import {
+  validateIpcPayload,
+  EditorOpenFilePayloadSchema,
+  EditorOpenFileAtLinePayloadSchema,
+  EditorOpenDirectoryPayloadSchema,
+  EditorSetPreferredPayloadSchema,
+  WatcherStartPayloadSchema,
+  WatcherStopPayloadSchema,
+  WatcherGetChangesPayloadSchema,
+  WatcherClearBufferPayloadSchema,
+  MultiEditPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 import { getExternalEditorManager } from '../../workspace/editor/external-editor';
 import { getFileWatcherManager } from '../../workspace/watcher/file-watcher';
 import { getMultiEditManager } from '../../workspace/multiedit-manager';
@@ -60,11 +72,12 @@ export function registerFileHandlers(deps: {
       payload: EditorOpenFilePayload
     ): Promise<IpcResponse> => {
       try {
-        const result = await editorManager.openFile(payload.filePath, {
-          line: payload.line,
-          column: payload.column,
-          waitForClose: payload.waitForClose,
-          newWindow: payload.newWindow
+        const validated = validateIpcPayload(EditorOpenFilePayloadSchema, payload, 'EDITOR_OPEN_FILE');
+        const result = await editorManager.openFile(validated.filePath, {
+          line: validated.line,
+          column: validated.column,
+          waitForClose: validated.waitForClose,
+          newWindow: validated.newWindow
         });
         return { success: true, data: result };
       } catch (error) {
@@ -88,10 +101,11 @@ export function registerFileHandlers(deps: {
       payload: EditorOpenFileAtLinePayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(EditorOpenFileAtLinePayloadSchema, payload, 'EDITOR_OPEN_FILE_AT_LINE');
         const result = await editorManager.openFileAtLine(
-          payload.filePath,
-          payload.line,
-          payload.column
+          validated.filePath,
+          validated.line,
+          validated.column
         );
         return { success: true, data: result };
       } catch (error) {
@@ -115,7 +129,8 @@ export function registerFileHandlers(deps: {
       payload: EditorOpenDirectoryPayload
     ): Promise<IpcResponse> => {
       try {
-        const result = await editorManager.openDirectory(payload.dirPath);
+        const validated = validateIpcPayload(EditorOpenDirectoryPayloadSchema, payload, 'EDITOR_OPEN_DIRECTORY');
+        const result = await editorManager.openDirectory(validated.dirPath);
         return { success: true, data: result };
       } catch (error) {
         return {
@@ -138,10 +153,11 @@ export function registerFileHandlers(deps: {
       payload: EditorSetPreferredPayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(EditorSetPreferredPayloadSchema, payload, 'EDITOR_SET_PREFERRED');
         editorManager.setPreferredEditor({
-          type: payload.type as import('../../workspace/editor/external-editor').EditorType,
-          path: payload.path,
-          args: payload.args
+          type: validated.type as import('../../workspace/editor/external-editor').EditorType,
+          path: validated.path,
+          args: validated.args
         });
         return { success: true };
       } catch (error) {
@@ -211,11 +227,12 @@ export function registerFileHandlers(deps: {
       payload: WatcherStartPayload
     ): Promise<IpcResponse> => {
       try {
-        const sessionId = await watcherManager.watch(payload.directory, {
-          ignored: payload.ignored,
-          useGitignore: payload.useGitignore,
-          depth: payload.depth,
-          ignoreInitial: payload.ignoreInitial
+        const validated = validateIpcPayload(WatcherStartPayloadSchema, payload, 'WATCHER_START');
+        const sessionId = await watcherManager.watch(validated.directory, {
+          ignored: validated.ignored,
+          useGitignore: validated.useGitignore,
+          depth: validated.depth,
+          ignoreInitial: validated.ignoreInitial
         });
         return { success: true, data: { sessionId } };
       } catch (error) {
@@ -239,7 +256,8 @@ export function registerFileHandlers(deps: {
       payload: WatcherStopPayload
     ): Promise<IpcResponse> => {
       try {
-        await watcherManager.unwatch(payload.sessionId);
+        const validated = validateIpcPayload(WatcherStopPayloadSchema, payload, 'WATCHER_STOP');
+        await watcherManager.unwatch(validated.sessionId);
         return { success: true };
       } catch (error) {
         return {
@@ -302,9 +320,10 @@ export function registerFileHandlers(deps: {
       payload: WatcherGetChangesPayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(WatcherGetChangesPayloadSchema, payload, 'WATCHER_GET_CHANGES');
         const changes = watcherManager.getRecentChanges(
-          payload.sessionId,
-          payload.limit
+          validated.sessionId,
+          validated.limit
         );
         return { success: true, data: changes };
       } catch (error) {
@@ -328,7 +347,8 @@ export function registerFileHandlers(deps: {
       payload: WatcherClearBufferPayload
     ): Promise<IpcResponse> => {
       try {
-        watcherManager.clearEventBuffer(payload.sessionId);
+        const validated = validateIpcPayload(WatcherClearBufferPayloadSchema, payload, 'WATCHER_CLEAR_BUFFER');
+        watcherManager.clearEventBuffer(validated.sessionId);
         return { success: true };
       } catch (error) {
         return {
@@ -380,7 +400,8 @@ export function registerFileHandlers(deps: {
       payload: MultiEditPayload
     ): Promise<IpcResponse> => {
       try {
-        const preview = await multiEdit.preview(payload.edits);
+        const validated = validateIpcPayload(MultiEditPayloadSchema, payload, 'MULTIEDIT_PREVIEW');
+        const preview = await multiEdit.preview(validated.edits);
         return {
           success: true,
           data: preview
@@ -406,9 +427,10 @@ export function registerFileHandlers(deps: {
       payload: MultiEditPayload
     ): Promise<IpcResponse> => {
       try {
-        const result = await multiEdit.apply(payload.edits, {
-          instanceId: payload.instanceId,
-          takeSnapshots: payload.takeSnapshots
+        const validated = validateIpcPayload(MultiEditPayloadSchema, payload, 'MULTIEDIT_APPLY');
+        const result = await multiEdit.apply(validated.edits, {
+          instanceId: validated.instanceId,
+          takeSnapshots: validated.takeSnapshots
         });
         return {
           success: result.success,

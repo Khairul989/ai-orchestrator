@@ -3,6 +3,7 @@
  */
 
 import {
+  ChangeDetectionStrategy,
   Component,
   inject,
   OnInit,
@@ -47,7 +48,8 @@ import { SidebarFooterComponent } from './sidebar-footer.component';
     SidebarFooterComponent
   ],
   templateUrl: './dashboard.component.html',
-  styleUrl: './dashboard.component.scss'
+  styleUrl: './dashboard.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class DashboardComponent implements OnInit, OnDestroy {
   private router = inject(Router);

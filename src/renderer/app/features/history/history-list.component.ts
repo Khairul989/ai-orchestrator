@@ -2,7 +2,7 @@
  * History List Component - Scrollable list of history entries
  */
 
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { HistoryItemComponent } from './history-item.component';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 
@@ -10,6 +10,7 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
   selector: 'app-history-list',
   standalone: true,
   imports: [HistoryItemComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loading()) {
       <div class="loading-state">

@@ -8,7 +8,7 @@
  * - Alternative routing options
  */
 
-import { Component, signal, input, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, signal, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 export interface RoutingExplanation {
@@ -54,6 +54,7 @@ export interface RoutingDecision {
   selector: 'app-routing-explanation',
   standalone: true,
   imports: [CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (decision()) {
       <div class="routing-explanation" [class.expanded]="expanded()">

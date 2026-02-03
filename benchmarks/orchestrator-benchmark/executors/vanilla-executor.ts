@@ -26,7 +26,6 @@ export async function executeVanilla(
 
   let output = '';
   let tokensUsed = 0;
-  const filesExamined: string[] = [];
 
   return new Promise((resolvePromise) => {
     // Spawn claude CLI in print mode for non-interactive execution
@@ -69,7 +68,6 @@ export async function executeVanilla(
       proc.kill('SIGTERM');
       resolvePromise({
         output: stdout || 'Timeout: Task exceeded time limit',
-        filesExamined,
         tokensUsed,
         durationMs: Date.now() - startTime,
         error: `Timeout after ${timeoutMs}ms`
@@ -100,13 +98,6 @@ export async function executeVanilla(
               tokensUsed = (parsed.usage.input_tokens || 0) + (parsed.usage.output_tokens || 0);
             }
 
-            // Track file reads
-            if (parsed.type === 'tool_use' && parsed.name === 'Read') {
-              const filePath = parsed.input?.file_path;
-              if (filePath && !filesExamined.includes(filePath)) {
-                filesExamined.push(filePath);
-              }
-            }
           } catch {
             // Not JSON, append as raw output
             output += line + '\n';
@@ -121,7 +112,6 @@ export async function executeVanilla(
 
       resolvePromise({
         output: output.trim() || stdout.trim(),
-        filesExamined,
         tokensUsed,
         durationMs,
         error: code !== 0 ? `Exit code: ${code}. Stderr: ${stderr}` : undefined
@@ -132,7 +122,6 @@ export async function executeVanilla(
       clearTimeout(timeout);
       resolvePromise({
         output: '',
-        filesExamined,
         tokensUsed,
         durationMs: Date.now() - startTime,
         error: `Process error: ${err.message}`

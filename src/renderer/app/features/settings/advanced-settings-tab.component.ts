@@ -2,7 +2,7 @@
  * Advanced Settings Tab Component - Advanced options, hook approvals, setup guides
  */
 
-import { Component, inject, signal, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
@@ -28,6 +28,7 @@ interface HookApprovalSummary {
 
 @Component({
   selector: 'app-advanced-settings-tab',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   imports: [SettingRowComponent],
   template: `

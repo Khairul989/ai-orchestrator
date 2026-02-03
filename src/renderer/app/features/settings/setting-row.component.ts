@@ -2,7 +2,7 @@
  * Setting Row Component - Reusable row for rendering individual settings
  */
 
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
 
@@ -17,6 +17,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
   selector: 'app-setting-row',
   standalone: true,
   imports: [FormsModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="setting-row">
       <div class="setting-info">

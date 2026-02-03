@@ -88,11 +88,11 @@ export class InstanceContextManager {
   private jitLoader: JITContextLoader;
 
   // Instance to RLM store/session mappings
-  private instanceRlmStores: Map<string, string> = new Map();
-  private instanceRlmSessions: Map<string, string> = new Map();
+  private instanceRlmStores = new Map<string, string>();
+  private instanceRlmSessions = new Map<string, string>();
 
   // Instance to registered JIT resources
-  private instanceResources: Map<string, Set<string>> = new Map();
+  private instanceResources = new Map<string, Set<string>>();
 
   constructor(config: Partial<ContextConfig> = {}) {
     this.config = { ...DEFAULT_CONTEXT_CONFIG, ...config };
@@ -190,6 +190,69 @@ export class InstanceContextManager {
    */
   getRlmSessionId(instanceId: string): string | undefined {
     return this.instanceRlmSessions.get(instanceId);
+  }
+
+  /**
+   * Compact context for an instance by summarizing older messages.
+   * This is called when context overflow is detected.
+   *
+   * Strategy:
+   * 1. Summarize older sections in the RLM store
+   * 2. Clear JIT cache for this instance
+   * 3. Trim the instance's output buffer to only recent messages
+   *
+   * @param instanceId The instance to compact
+   * @param instance The instance object (for buffer access)
+   */
+  async compactContext(instanceId: string, instance: Instance): Promise<void> {
+    console.log(`[ContextCompaction] Starting compaction for instance ${instanceId}`);
+
+    const rlmSessionId = this.instanceRlmSessions.get(instanceId);
+    const rlmStoreId = this.instanceRlmStores.get(instanceId);
+
+    // 1. Summarize older RLM sections if available
+    if (rlmSessionId && rlmStoreId) {
+      try {
+        const store = this.rlm.getStore(rlmStoreId);
+        if (store && store.sections.length > 20) {
+          // Get IDs of older sections to summarize (all but last 20)
+          const sectionsToSummarize = store.sections
+            .slice(0, -20)
+            .filter(s => s.type !== 'summary') // Don't re-summarize summaries
+            .map(s => s.id);
+
+          if (sectionsToSummarize.length > 0) {
+            const query: ContextQuery = {
+              type: 'summarize',
+              params: {
+                sectionIds: sectionsToSummarize
+              }
+            };
+            await this.rlm.executeQuery(rlmSessionId, query);
+            console.log(`[ContextCompaction] Summarized ${sectionsToSummarize.length} RLM sections for ${instanceId}`);
+          }
+        }
+      } catch (error) {
+        console.warn(`[ContextCompaction] RLM summarization failed for ${instanceId}:`, error);
+        // Continue with other compaction strategies
+      }
+    }
+
+    // 2. Clear JIT cache for this instance
+    this.cleanupInstanceJIT(instanceId);
+    console.log(`[ContextCompaction] JIT cache cleared for ${instanceId}`);
+
+    // 3. Trim the output buffer to keep only recent messages
+    const maxRecentMessages = 50; // Keep last 50 messages
+    if (instance.outputBuffer.length > maxRecentMessages) {
+      const trimCount = instance.outputBuffer.length - maxRecentMessages;
+      console.log(`[ContextCompaction] Trimming ${trimCount} older messages from buffer for ${instanceId}`);
+
+      // Keep only the most recent messages
+      instance.outputBuffer = instance.outputBuffer.slice(-maxRecentMessages);
+    }
+
+    console.log(`[ContextCompaction] Compaction complete for ${instanceId}`);
   }
 
   // ============================================
@@ -737,7 +800,7 @@ export class InstanceContextManager {
   /**
    * Get related resources based on access patterns
    */
-  getRelatedResources(resourceId: string, limit: number = 5): string[] {
+  getRelatedResources(resourceId: string, limit = 5): string[] {
     return this.jitLoader.getRelatedResources(resourceId, limit);
   }
 
@@ -774,7 +837,7 @@ export class InstanceContextManager {
   async buildJITContext(
     instanceId: string,
     query: string,
-    maxTokens: number = 2000
+    maxTokens = 2000
   ): Promise<{
     context: string | null;
     tokens: number;
@@ -791,7 +854,7 @@ export class InstanceContextManager {
     const resourceIds = Array.from(resources);
 
     // Score resources by relevance to query
-    const scored: Array<{ id: string; score: number }> = [];
+    const scored: { id: string; score: number }[] = [];
     for (const id of resourceIds) {
       const identifier = this.jitLoader.getIdentifier(id);
       if (!identifier) continue;

@@ -39,6 +39,22 @@ npx ts-node runner.ts --task KA-1
 | `npx ts-node runner.ts --skip-orchestrator` | Only run vanilla tests |
 | `npx ts-node runner.ts --skip-scoring` | Run tasks but skip scoring/judging |
 | `npx ts-node runner.ts --score-only <session>` | Score existing session without re-running |
+| `npx ts-node runner.ts --no-isolation` | Disable git worktree isolation between runs |
+
+## Scientific Rigor
+
+### Run Order Randomization
+Runs are executed in randomized order to reduce drift bias from:
+- API performance variations
+- Caching effects
+- Time-of-day fluctuations
+
+Use `--dry-run` to preview the randomized execution order.
+
+### Run Isolation
+Each run executes in an isolated git worktree to prevent contamination between runs. The worktree is created fresh and deleted after each run.
+
+Disable with `--no-isolation` if worktrees are unavailable (falls back to `git stash`).
 
 ## Test Matrix
 
@@ -59,7 +75,6 @@ Each task runs:
 | KA-2 | List singleton services | Multi-file |
 | KA-3 | Find orchestration-handler imports | Multi-file |
 | KA-4 | Find injected bugs | Multi-file |
-| KA-5 | Trace message to child spawn | Large-context |
 
 ### Real Codebase Tasks (Judge Evaluation)
 
@@ -70,6 +85,9 @@ Each task runs:
 | RC-3 | Review fast-path retrieval | Multi-file |
 | RC-4 | Adding orchestrator commands | Large-context |
 | RC-5 | Instance failure modes | Multi-file |
+| RC-6 | Trace message to child spawn | Large-context |
+
+> **Note:** RC-6 was moved from Known-Answer tasks (formerly KA-5) because trace completeness is inherently subjective.
 
 ## Directory Structure
 

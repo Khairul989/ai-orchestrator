@@ -3,6 +3,7 @@
  */
 
 import {
+  ChangeDetectionStrategy,
   Component,
   inject,
   output,
@@ -20,6 +21,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
   selector: 'app-history-sidebar',
   standalone: true,
   imports: [FormsModule, HistoryListComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       class="history-backdrop"

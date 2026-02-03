@@ -13,6 +13,10 @@ export const InstanceIdSchema = z.string().min(1).max(100);
 export const SessionIdSchema = z.string().min(1).max(100);
 export const DisplayNameSchema = z.string().min(1).max(200);
 export const WorkingDirectorySchema = z.string().min(1).max(1000);
+export const FilePathSchema = z.string().min(1).max(2000);
+export const DirectoryPathSchema = z.string().min(1).max(2000);
+export const SnapshotIdSchema = z.string().min(1).max(100);
+export const StoreIdSchema = z.string().min(1).max(200);
 
 // ============ File Attachment Schema ============
 
@@ -91,12 +95,85 @@ export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponseP
 
 // ============ Settings ============
 
+export const SettingsGetPayloadSchema = z.object({
+  key: z.string().min(1).max(100),
+});
+
 export const SettingsUpdatePayloadSchema = z.object({
   key: z.string().min(1).max(100),
   value: z.unknown(), // Settings can be various types
 });
 
+export const SettingsBulkUpdatePayloadSchema = z.object({
+  settings: z.record(z.string(), z.unknown()).optional(),
+}).passthrough(); // Allow direct settings as well
+
+export const SettingsResetOnePayloadSchema = z.object({
+  key: z.string().min(1).max(100),
+});
+
 export type SettingsUpdatePayload = z.infer<typeof SettingsUpdatePayloadSchema>;
+
+// ============ Config ============
+
+const ConfigPathSchema = z.string().min(1).max(2000);
+
+export const ConfigResolvePayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+});
+
+export const ConfigGetProjectPayloadSchema = z.object({
+  configPath: ConfigPathSchema,
+});
+
+export const ConfigSaveProjectPayloadSchema = z.object({
+  configPath: ConfigPathSchema,
+  config: z.record(z.string(), z.unknown()), // ProjectConfig is complex, validate structure
+});
+
+export const ConfigCreateProjectPayloadSchema = z.object({
+  projectDir: WorkingDirectorySchema,
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ConfigFindProjectPayloadSchema = z.object({
+  startDir: WorkingDirectorySchema,
+});
+
+// ============ Remote Config ============
+
+const UrlSchema = z.string().url().max(2000);
+const DomainSchema = z.string().min(1).max(255);
+const GitHubOwnerSchema = z.string().min(1).max(100);
+const GitHubRepoSchema = z.string().min(1).max(100);
+
+export const RemoteConfigFetchUrlPayloadSchema = z.object({
+  url: UrlSchema,
+  timeout: z.number().int().min(0).max(60000).optional(),
+  cacheTTL: z.number().int().min(0).optional(),
+  maxRetries: z.number().int().min(0).max(10).optional(),
+  useCache: z.boolean().optional(),
+});
+
+export const RemoteConfigFetchWellKnownPayloadSchema = z.object({
+  domain: DomainSchema,
+  timeout: z.number().int().min(0).max(60000).optional(),
+  cacheTTL: z.number().int().min(0).optional(),
+});
+
+export const RemoteConfigFetchGitHubPayloadSchema = z.object({
+  owner: GitHubOwnerSchema,
+  repo: GitHubRepoSchema,
+  branch: z.string().max(100).optional(),
+});
+
+export const RemoteConfigDiscoverGitPayloadSchema = z.object({
+  gitRemoteUrl: UrlSchema,
+});
+
+export const RemoteConfigInvalidatePayloadSchema = z.object({
+  url: UrlSchema,
+});
 
 // ============ User Action Response ============
 
@@ -128,6 +205,203 @@ export const MessageChildPayloadSchema = z.object({
 });
 
 export type MessageChildPayload = z.infer<typeof MessageChildPayloadSchema>;
+
+// ============ Commands ============
+
+const CommandIdSchema = z.string().min(1).max(100);
+
+export const CommandExecutePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  commandId: CommandIdSchema,
+  args: z.array(z.string().max(10000)).max(50).optional(),
+});
+
+export const CommandCreatePayloadSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().min(1).max(1000),
+  template: z.string().min(1).max(100000),
+  hint: z.string().max(500).optional(),
+  shortcut: z.string().max(50).optional(),
+});
+
+export const CommandUpdatePayloadSchema = z.object({
+  commandId: CommandIdSchema,
+  updates: z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().min(1).max(1000).optional(),
+    template: z.string().min(1).max(100000).optional(),
+    hint: z.string().max(500).optional(),
+    shortcut: z.string().max(50).optional(),
+  }),
+});
+
+export const CommandDeletePayloadSchema = z.object({
+  commandId: CommandIdSchema,
+});
+
+// ============ Plan Mode ============
+
+export const PlanModeEnterPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const PlanModeExitPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  force: z.boolean().optional(),
+});
+
+export const PlanModeApprovePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  planContent: z.string().max(500000),
+});
+
+export const PlanModeUpdatePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  planContent: z.string().max(500000),
+});
+
+export const PlanModeGetStatePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+// ============ File Operations ============
+
+// Editor operations
+export const EditorOpenFilePayloadSchema = z.object({
+  filePath: FilePathSchema,
+  line: z.number().int().min(0).optional(),
+  column: z.number().int().min(0).optional(),
+  waitForClose: z.boolean().optional(),
+  newWindow: z.boolean().optional(),
+});
+
+export const EditorOpenFileAtLinePayloadSchema = z.object({
+  filePath: FilePathSchema,
+  line: z.number().int().min(0),
+  column: z.number().int().min(0).optional(),
+});
+
+export const EditorOpenDirectoryPayloadSchema = z.object({
+  dirPath: DirectoryPathSchema,
+});
+
+export const EditorSetPreferredPayloadSchema = z.object({
+  type: z.string().min(1).max(50),
+  path: z.string().max(2000).optional(),
+  args: z.array(z.string().max(500)).max(20).optional(),
+});
+
+// Watcher operations
+export const WatcherStartPayloadSchema = z.object({
+  directory: DirectoryPathSchema,
+  ignored: z.array(z.string().max(500)).max(100).optional(),
+  useGitignore: z.boolean().optional(),
+  depth: z.number().int().min(0).max(20).optional(),
+  ignoreInitial: z.boolean().optional(),
+  debounceMs: z.number().int().min(0).max(10000).optional(),
+});
+
+export const WatcherStopPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const WatcherGetChangesPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  limit: z.number().int().min(1).max(1000).optional(),
+});
+
+export const WatcherClearBufferPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+// Multi-edit operations
+export const MultiEditOperationSchema = z.object({
+  filePath: FilePathSchema,
+  oldString: z.string().max(100000),
+  newString: z.string().max(100000),
+  mode: z.enum(['exact', 'regex']).optional(),
+});
+
+export const MultiEditPayloadSchema = z.object({
+  edits: z.array(MultiEditOperationSchema).min(1).max(100),
+  instanceId: InstanceIdSchema.optional(),
+  takeSnapshots: z.boolean().optional(),
+});
+
+// ============ Snapshot Operations ============
+
+export const SnapshotTakePayloadSchema = z.object({
+  filePath: FilePathSchema,
+  instanceId: InstanceIdSchema,
+  sessionId: SessionIdSchema.optional(),
+  action: z.enum(['create', 'modify', 'delete']).optional(),
+});
+
+export const SnapshotStartSessionPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  description: z.string().max(500).optional(),
+});
+
+export const SnapshotEndSessionPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const SnapshotGetForInstancePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const SnapshotGetForFilePayloadSchema = z.object({
+  filePath: FilePathSchema,
+});
+
+export const SnapshotGetSessionsPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const SnapshotGetContentPayloadSchema = z.object({
+  snapshotId: SnapshotIdSchema,
+});
+
+export const SnapshotRevertFilePayloadSchema = z.object({
+  snapshotId: SnapshotIdSchema,
+});
+
+export const SnapshotRevertSessionPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const SnapshotGetDiffPayloadSchema = z.object({
+  snapshotId: SnapshotIdSchema,
+});
+
+export const SnapshotDeletePayloadSchema = z.object({
+  snapshotId: SnapshotIdSchema,
+});
+
+export const SnapshotCleanupPayloadSchema = z.object({
+  maxAgeDays: z.number().int().min(1).max(3650),
+});
+
+// ============ Codebase Operations ============
+
+export const CodebaseIndexStorePayloadSchema = z.object({
+  storeId: StoreIdSchema,
+  rootPath: DirectoryPathSchema,
+  options: z.object({
+    force: z.boolean().optional(),
+    filePatterns: z.array(z.string().max(500)).max(100).optional(),
+  }).optional(),
+});
+
+export const CodebaseIndexFilePayloadSchema = z.object({
+  storeId: StoreIdSchema,
+  filePath: FilePathSchema,
+});
+
+export const CodebaseWatcherPayloadSchema = z.object({
+  storeId: StoreIdSchema,
+  rootPath: DirectoryPathSchema.optional(),
+});
 
 // ============ Validation Helper ============
 

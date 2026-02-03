@@ -3,7 +3,7 @@
  * Footer section of the dashboard sidebar with stats and close all button
  */
 
-import { Component, inject, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { InstanceStore } from '../../core/state/instance.store';
 
@@ -11,6 +11,7 @@ import { InstanceStore } from '../../core/state/instance.store';
   selector: 'app-sidebar-footer',
   standalone: true,
   imports: [DecimalPipe],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-footer">
       <div class="stats">

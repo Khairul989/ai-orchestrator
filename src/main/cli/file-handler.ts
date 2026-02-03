@@ -5,6 +5,9 @@
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import type { FileAttachment } from '../../shared/types/instance.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('FileHandler');
 
 export interface ProcessedAttachment {
   originalName: string;
@@ -47,7 +50,7 @@ export async function processAttachments(
     const buffer = Buffer.from(base64Data, 'base64');
     await writeFile(filePath, buffer);
 
-    console.log(`FileHandler: Saved ${attachment.name} to ${filePath}`);
+    logger.debug('Saved attachment', { name: attachment.name, filePath });
 
     results.push({
       originalName: attachment.name,

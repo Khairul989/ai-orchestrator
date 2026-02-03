@@ -5,7 +5,7 @@
  * Fetches available models dynamically from the Copilot CLI.
  */
 
-import { Component, output, signal, computed, inject, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output, signal, computed, inject, OnInit } from '@angular/core';
 import { ElectronIpcService, CopilotModelInfo } from '../../core/services/ipc';
 
 export interface CopilotModel {
@@ -74,6 +74,7 @@ function convertToModel(info: CopilotModelInfo): CopilotModel {
 @Component({
   selector: 'app-copilot-model-selector',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="model-selector">
       <span class="selector-label">

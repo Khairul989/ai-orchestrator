@@ -16,6 +16,7 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
+import { getLogger } from '../../logging/logger';
 
 // Import SDK types dynamically to handle cases where SDK is not installed
 type CopilotClientType = import('@github/copilot-sdk').CopilotClient;
@@ -23,6 +24,9 @@ type CopilotSessionType = import('@github/copilot-sdk').CopilotSession;
 
 // Cache the SDK module once loaded
 let cachedSdk: { CopilotClient: new (options?: any) => CopilotClientType } | null = null;
+
+// Logger instance
+const logger = getLogger('CopilotSdkAdapter');
 
 /**
  * Find the SDK directory by walking up from node_modules
@@ -62,7 +66,7 @@ async function importCopilotSdk(): Promise<{ CopilotClient: new (options?: any) 
   const sdkIndexPath = findSdkPath();
   const sdkUrl = pathToFileURL(sdkIndexPath).href;
 
-  console.log('[CopilotSdkAdapter] Importing SDK from:', sdkUrl);
+  logger.debug('Importing SDK', { sdkUrl });
 
   try {
     // Use indirect eval to create a real ESM import that TypeScript won't transpile to require()
@@ -71,10 +75,10 @@ async function importCopilotSdk(): Promise<{ CopilotClient: new (options?: any) 
     const importModule = (0, eval)('(async (u) => await import(u))') as (url: string) => Promise<any>;
     const sdk = await importModule(sdkUrl);
     cachedSdk = sdk;
-    console.log('[CopilotSdkAdapter] SDK loaded successfully');
+    logger.info('SDK loaded successfully');
     return sdk;
   } catch (error) {
-    console.error('[CopilotSdkAdapter] Failed to import SDK:', error);
+    logger.error('Failed to import SDK', error instanceof Error ? error : new Error(String(error)));
     throw new Error(`Failed to load Copilot SDK: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -208,7 +212,7 @@ export class CopilotSdkAdapter extends EventEmitter {
       throw new Error('Adapter already spawned');
     }
 
-    console.log('[CopilotSdkAdapter] spawn() called with config:', {
+    logger.info('spawn() called', {
       workingDir: this.config.workingDir,
       model: this.config.model,
       hasSystemPrompt: !!this.config.systemPrompt,
@@ -218,27 +222,27 @@ export class CopilotSdkAdapter extends EventEmitter {
 
     try {
       // Dynamically import the SDK using helper for ESM/CommonJS interop
-      console.log('[CopilotSdkAdapter] Importing @github/copilot-sdk...');
+      logger.debug('Importing @github/copilot-sdk');
       const { CopilotClient } = await importCopilotSdk();
-      console.log('[CopilotSdkAdapter] SDK imported successfully');
+      logger.debug('SDK imported successfully');
 
       // Create the Copilot client
-      console.log('[CopilotSdkAdapter] Creating CopilotClient...');
+      logger.debug('Creating CopilotClient');
       const client = new CopilotClient({
         autoStart: true,
         autoRestart: true,
         cwd: this.config.workingDir
       });
       this.client = client;
-      console.log('[CopilotSdkAdapter] CopilotClient created');
+      logger.debug('CopilotClient created');
 
       // Start the client
-      console.log('[CopilotSdkAdapter] Starting client...');
+      logger.debug('Starting client');
       await client.start();
-      console.log('[CopilotSdkAdapter] Client started successfully');
+      logger.info('Client started successfully');
 
       // Create a session with streaming enabled
-      console.log('[CopilotSdkAdapter] Creating session with model:', this.config.model || 'gpt-4');
+      logger.debug('Creating session', { model: this.config.model || 'gpt-4' });
       const session = await client.createSession({
         model: this.config.model || 'gpt-4',
         systemMessage: this.config.systemPrompt
@@ -250,7 +254,7 @@ export class CopilotSdkAdapter extends EventEmitter {
         streaming: true
       });
       this.session = session;
-      console.log('[CopilotSdkAdapter] Session created with ID:', session.sessionId);
+      logger.info('Session created', { sessionId: session.sessionId });
 
       // Set up event forwarding from SDK to orchestrator events
       this.setupEventForwarding();
@@ -259,16 +263,14 @@ export class CopilotSdkAdapter extends EventEmitter {
 
       // Generate a fake PID since SDK doesn't expose the underlying process PID
       const fakePid = Math.floor(Math.random() * 100000) + 10000;
-      console.log('[CopilotSdkAdapter] Spawn complete, fake PID:', fakePid);
+      logger.info('Spawn complete', { fakePid });
       this.emit('spawned', fakePid);
       this.emit('status', 'idle' as InstanceStatus);
 
       return fakePid;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      console.error('[CopilotSdkAdapter] spawn() failed:', errorMessage);
-      console.error('[CopilotSdkAdapter] Error stack:', errorStack);
+      logger.error('spawn() failed', error instanceof Error ? error : new Error(errorMessage));
 
       // Provide a more helpful error message for common issues
       let userFriendlyError = errorMessage;
@@ -394,7 +396,7 @@ export class CopilotSdkAdapter extends EventEmitter {
               format: 'sdk',
               timestamp: Date.now()
             });
-            console.log('[CopilotSdkAdapter] Captured reasoning block, total:', this.currentMessageReasoning.length);
+            logger.debug('Captured reasoning block', { total: this.currentMessageReasoning.length });
           }
           break;
 
@@ -415,7 +417,7 @@ export class CopilotSdkAdapter extends EventEmitter {
   }
 
   async sendInput(message: string, attachments?: { name: string; type?: string; mimeType?: string; data?: string; path?: string }[]): Promise<void> {
-    console.log('[CopilotSdkAdapter] sendInput called:', {
+    logger.debug('sendInput called', {
       messageLength: message?.length,
       attachmentsCount: attachments?.length,
       isSpawned: this.isSpawned,
@@ -424,7 +426,7 @@ export class CopilotSdkAdapter extends EventEmitter {
 
     if (!this.isSpawned || !this.session) {
       const error = new Error('Adapter not spawned - call spawn() first');
-      console.error('[CopilotSdkAdapter] sendInput failed:', error.message);
+      logger.error('sendInput failed', error);
       throw error;
     }
 
@@ -448,14 +450,14 @@ export class CopilotSdkAdapter extends EventEmitter {
         }
       }
 
-      console.log('[CopilotSdkAdapter] Calling session.sendAndWait with timeout:', this.config.timeout || 60000);
+      logger.debug('Calling session.sendAndWait', { timeout: this.config.timeout || 60000 });
       // Send and wait for completion with configured timeout
       const result = await this.session.sendAndWait(messageOptions, this.config.timeout || 60000);
-      console.log('[CopilotSdkAdapter] sendAndWait completed, result:', result ? 'has content' : 'no content');
+      logger.debug('sendAndWait completed', { hasContent: !!result });
 
       // Context usage is updated via the assistant.usage event
     } catch (error) {
-      console.error('[CopilotSdkAdapter] sendInput error:', error instanceof Error ? error.message : String(error));
+      logger.error('sendInput error', error instanceof Error ? error : new Error(String(error)));
       const errorMessage: OutputMessage = {
         id: generateId(),
         timestamp: Date.now(),
@@ -575,7 +577,7 @@ export class CopilotSdkAdapter extends EventEmitter {
         throw err;
       }
     } catch (error) {
-      console.error('[CopilotSdkAdapter] Failed to list models:', error);
+      logger.error('Failed to list models', error instanceof Error ? error : new Error(String(error)));
       // Return default models if we can't fetch from the CLI
       return COPILOT_DEFAULT_MODELS;
     }

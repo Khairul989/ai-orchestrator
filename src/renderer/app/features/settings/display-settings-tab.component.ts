@@ -2,7 +2,7 @@
  * Display Settings Tab Component - Theme, font, UI settings
  */
 
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { SettingRowComponent } from './setting-row.component';
@@ -12,6 +12,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
   selector: 'app-display-settings-tab',
   standalone: true,
   imports: [SettingRowComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (setting of store.displaySettings(); track setting.key) {
       <app-setting-row

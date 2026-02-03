@@ -2,7 +2,7 @@
  * History Item Component - Individual entry in the history list
  */
 
-import { Component, input, output, signal, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, signal, inject } from '@angular/core';
 import { DatePipe, CommonModule } from '@angular/common';
 import { HistoryStore } from '../../core/state/history.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
@@ -12,6 +12,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
   selector: 'app-history-item',
   standalone: true,
   imports: [DatePipe, CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       class="history-item"

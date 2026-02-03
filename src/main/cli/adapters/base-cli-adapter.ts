@@ -6,6 +6,9 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('BaseCliAdapter');
 
 /**
  * Configuration for CLI adapters
@@ -263,7 +266,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       // after interrupt. The CLI will emit 'waiting_for_input' when it's ready.
       return true;
     } catch (error) {
-      console.error('Failed to interrupt process:', error);
+      logger.error('Failed to interrupt process', error instanceof Error ? error : new Error(String(error)));
       return false;
     }
   }

@@ -7,7 +7,7 @@
  * - Statistics on permission decisions
  */
 
-import { Component, inject, signal, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 
 interface PermissionsApi {
@@ -59,6 +59,7 @@ interface PermissionStats {
   selector: 'app-permissions-settings-tab',
   standalone: true,
   imports: [],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Pending Batch Permissions Section -->
     <div class="section">

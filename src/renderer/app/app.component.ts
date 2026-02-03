@@ -2,7 +2,7 @@
  * Root Application Component
  */
 
-import { Component, inject, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ElectronIpcService } from './core/services/ipc';
 
@@ -10,6 +10,7 @@ import { ElectronIpcService } from './core/services/ipc';
   selector: 'app-root',
   standalone: true,
   imports: [RouterOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="app-container" [class.macos]="isMacOS">
       <!-- Draggable title bar area for macOS -->

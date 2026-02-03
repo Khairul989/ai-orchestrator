@@ -44,7 +44,7 @@ export class InstanceManager extends EventEmitter {
   private persistence: InstancePersistenceManager;
 
   // Tracking
-  private hasReceivedFirstMessage: Set<string> = new Set();
+  private hasReceivedFirstMessage = new Set<string>();
   private settings = getSettingsManager();
 
   constructor() {
@@ -64,7 +64,13 @@ export class InstanceManager extends EventEmitter {
       processOrchestrationOutput: (id, content) => this.orchestrationMgr.processOrchestrationOutput(id, content),
       onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),
       ingestToRLM: (id, msg) => this.context.ingestToRLM(id, msg),
-      ingestToUnifiedMemory: (inst, msg) => this.context.ingestToUnifiedMemory(inst, msg)
+      ingestToUnifiedMemory: (inst, msg) => this.context.ingestToUnifiedMemory(inst, msg),
+      compactContext: async (id) => {
+        const instance = this.state.getInstance(id);
+        if (instance) {
+          await this.context.compactContext(id, instance);
+        }
+      }
     });
 
     // Orchestration manager needs dependencies
@@ -193,7 +199,7 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.createInstance(config);
   }
 
-  async terminateInstance(instanceId: string, graceful: boolean = true): Promise<void> {
+  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
     return this.lifecycle.terminateInstance(instanceId, graceful);
   }
 

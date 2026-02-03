@@ -19,6 +19,21 @@ import type {
   SnapshotDeletePayload,
   SnapshotCleanupPayload
 } from '../../../shared/types/ipc.types';
+import {
+  validateIpcPayload,
+  SnapshotTakePayloadSchema,
+  SnapshotStartSessionPayloadSchema,
+  SnapshotEndSessionPayloadSchema,
+  SnapshotGetForInstancePayloadSchema,
+  SnapshotGetForFilePayloadSchema,
+  SnapshotGetSessionsPayloadSchema,
+  SnapshotGetContentPayloadSchema,
+  SnapshotRevertFilePayloadSchema,
+  SnapshotRevertSessionPayloadSchema,
+  SnapshotGetDiffPayloadSchema,
+  SnapshotDeletePayloadSchema,
+  SnapshotCleanupPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 import { getSnapshotManager } from '../../persistence/snapshot-manager';
 
 export function registerSnapshotHandlers(): void {
@@ -32,11 +47,12 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotTakePayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SnapshotTakePayloadSchema, payload, 'SNAPSHOT_TAKE');
         const snapshotId = snapshots.takeSnapshot(
-          payload.filePath,
-          payload.instanceId,
-          payload.sessionId,
-          payload.action
+          validated.filePath,
+          validated.instanceId,
+          validated.sessionId,
+          validated.action
         );
         return {
           success: true,
@@ -63,9 +79,10 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotStartSessionPayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SnapshotStartSessionPayloadSchema, payload, 'SNAPSHOT_START_SESSION');
         const sessionId = snapshots.startSession(
-          payload.instanceId,
-          payload.description
+          validated.instanceId,
+          validated.description
         );
         return {
           success: true,
@@ -92,7 +109,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotEndSessionPayload
     ): Promise<IpcResponse> => {
       try {
-        const session = snapshots.endSession(payload.sessionId);
+        const validated = validateIpcPayload(SnapshotEndSessionPayloadSchema, payload, 'SNAPSHOT_END_SESSION');
+        const session = snapshots.endSession(validated.sessionId);
         return {
           success: true,
           data: session
@@ -118,8 +136,9 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotGetForInstancePayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SnapshotGetForInstancePayloadSchema, payload, 'SNAPSHOT_GET_FOR_INSTANCE');
         const snapshotList = snapshots.getSnapshotsForInstance(
-          payload.instanceId
+          validated.instanceId
         );
         return {
           success: true,
@@ -146,7 +165,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotGetForFilePayload
     ): Promise<IpcResponse> => {
       try {
-        const snapshotList = snapshots.getSnapshotsForFile(payload.filePath);
+        const validated = validateIpcPayload(SnapshotGetForFilePayloadSchema, payload, 'SNAPSHOT_GET_FOR_FILE');
+        const snapshotList = snapshots.getSnapshotsForFile(validated.filePath);
         return {
           success: true,
           data: snapshotList
@@ -172,7 +192,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotGetSessionsPayload
     ): Promise<IpcResponse> => {
       try {
-        const sessions = snapshots.getSessionsForInstance(payload.instanceId);
+        const validated = validateIpcPayload(SnapshotGetSessionsPayloadSchema, payload, 'SNAPSHOT_GET_SESSIONS');
+        const sessions = snapshots.getSessionsForInstance(validated.instanceId);
         return {
           success: true,
           data: sessions
@@ -198,7 +219,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotGetContentPayload
     ): Promise<IpcResponse> => {
       try {
-        const content = snapshots.getSnapshotContent(payload.snapshotId);
+        const validated = validateIpcPayload(SnapshotGetContentPayloadSchema, payload, 'SNAPSHOT_GET_CONTENT');
+        const content = snapshots.getSnapshotContent(validated.snapshotId);
         return {
           success: true,
           data: { content }
@@ -224,7 +246,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotRevertFilePayload
     ): Promise<IpcResponse> => {
       try {
-        const result = snapshots.revertFile(payload.snapshotId);
+        const validated = validateIpcPayload(SnapshotRevertFilePayloadSchema, payload, 'SNAPSHOT_REVERT_FILE');
+        const result = snapshots.revertFile(validated.snapshotId);
         return {
           success: result.success,
           data: result,
@@ -257,7 +280,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotRevertSessionPayload
     ): Promise<IpcResponse> => {
       try {
-        const result = snapshots.revertSession(payload.sessionId);
+        const validated = validateIpcPayload(SnapshotRevertSessionPayloadSchema, payload, 'SNAPSHOT_REVERT_SESSION');
+        const result = snapshots.revertSession(validated.sessionId);
         return {
           success: result.success,
           data: result,
@@ -290,7 +314,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotGetDiffPayload
     ): Promise<IpcResponse> => {
       try {
-        const diff = snapshots.getSnapshotDiff(payload.snapshotId);
+        const validated = validateIpcPayload(SnapshotGetDiffPayloadSchema, payload, 'SNAPSHOT_GET_DIFF');
+        const diff = snapshots.getSnapshotDiff(validated.snapshotId);
         return {
           success: true,
           data: diff
@@ -316,7 +341,8 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotDeletePayload
     ): Promise<IpcResponse> => {
       try {
-        const deleted = snapshots.deleteSnapshot(payload.snapshotId);
+        const validated = validateIpcPayload(SnapshotDeletePayloadSchema, payload, 'SNAPSHOT_DELETE');
+        const deleted = snapshots.deleteSnapshot(validated.snapshotId);
         return {
           success: deleted,
           error: deleted
@@ -348,8 +374,9 @@ export function registerSnapshotHandlers(): void {
       payload: SnapshotCleanupPayload
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SnapshotCleanupPayloadSchema, payload, 'SNAPSHOT_CLEANUP');
         const deletedCount = snapshots.cleanupOldSnapshots(
-          payload.maxAgeDays
+          validated.maxAgeDays
         );
         return {
           success: true,

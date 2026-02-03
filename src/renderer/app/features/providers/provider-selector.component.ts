@@ -5,7 +5,7 @@
  * switching between them for new instances. For Copilot, also allows model selection.
  */
 
-import { Component, inject, output, signal, computed, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output, signal, computed, OnInit } from '@angular/core';
 import { CliStore } from '../../core/state/cli.store';
 
 export type ProviderType = 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
@@ -22,6 +22,7 @@ export interface ProviderOption {
 @Component({
   selector: 'app-provider-selector',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="provider-selector">
       <button

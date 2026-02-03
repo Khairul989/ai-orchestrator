@@ -4,6 +4,9 @@
 
 import type { Writable } from 'stream';
 import type { FileAttachment } from '../../shared/types/instance.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('InputFormatter');
 
 // Anthropic API content block types
 type TextBlock = { type: 'text'; text: string };
@@ -29,8 +32,8 @@ export class InputFormatter {
    * Uses Anthropic API format with content blocks for multimodal support
    */
   async sendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
-    console.log('InputFormatter.sendMessage called:', {
-      message: message.substring(0, 50),
+    logger.debug('sendMessage called', {
+      messagePreview: message.substring(0, 50),
       attachmentsCount: attachments?.length ?? 0,
     });
 
@@ -70,7 +73,7 @@ export class InputFormatter {
    * Send a raw string to stdin (for non-JSON mode)
    */
   async sendRaw(content: string): Promise<void> {
-    console.log('InputFormatter.sendRaw called:', { content });
+    logger.debug('sendRaw called', { contentLength: content.length });
     return new Promise((resolve, reject) => {
       const success = this.stdin.write(content + '\n', 'utf-8', (error) => {
         if (error) {
@@ -92,7 +95,7 @@ export class InputFormatter {
    */
   private async writeToStdin(message: Record<string, unknown>): Promise<void> {
     const json = JSON.stringify(message);
-    console.log('InputFormatter: Sending JSON:', json);
+    logger.debug('Sending JSON to stdin', { jsonLength: json.length });
     return this.sendRaw(json);
   }
 

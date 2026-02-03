@@ -20,7 +20,7 @@ export interface OrchestratorExecutorOptions {
 }
 
 interface BenchmarkMessage {
-  type: 'output' | 'file_read' | 'tokens' | 'complete' | 'error';
+  type: 'output' | 'tokens' | 'complete' | 'error';
   data: unknown;
 }
 
@@ -38,7 +38,6 @@ export async function executeOrchestrator(
 
   let output = '';
   let tokensUsed = 0;
-  const filesExamined: string[] = [];
   let electronProc: ChildProcess | null = null;
   let server: Server | null = null;
 
@@ -69,12 +68,6 @@ export async function executeOrchestrator(
         case 'output':
           output += String(msg.data) + '\n';
           break;
-        case 'file_read':
-          const filePath = String(msg.data);
-          if (!filesExamined.includes(filePath)) {
-            filesExamined.push(filePath);
-          }
-          break;
         case 'tokens':
           tokensUsed += Number(msg.data) || 0;
           break;
@@ -82,7 +75,6 @@ export async function executeOrchestrator(
           cleanup();
           resolvePromise({
             output: output.trim(),
-            filesExamined,
             tokensUsed,
             durationMs: Date.now() - startTime
           });
@@ -91,7 +83,6 @@ export async function executeOrchestrator(
           cleanup();
           resolvePromise({
             output: output.trim(),
-            filesExamined,
             tokensUsed,
             durationMs: Date.now() - startTime,
             error: String(msg.data)
@@ -159,7 +150,6 @@ export async function executeOrchestrator(
           cleanup();
           resolvePromise({
             output: output.trim(),
-            filesExamined,
             tokensUsed,
             durationMs: Date.now() - startTime,
             error: `Electron exited with code ${code}`
@@ -171,7 +161,6 @@ export async function executeOrchestrator(
         cleanup();
         resolvePromise({
           output: '',
-          filesExamined,
           tokensUsed,
           durationMs: Date.now() - startTime,
           error: `Failed to launch Electron: ${err.message}`
@@ -184,7 +173,6 @@ export async function executeOrchestrator(
       cleanup();
       resolvePromise({
         output: output.trim() || 'Timeout: Task exceeded time limit',
-        filesExamined,
         tokensUsed,
         durationMs: Date.now() - startTime,
         error: `Timeout after ${timeoutMs}ms`
@@ -218,7 +206,6 @@ export async function executeOrchestratorIPC(
 
   return {
     output: 'IPC execution not yet implemented',
-    filesExamined: [],
     tokensUsed: 0,
     durationMs: Date.now() - startTime,
     error: 'IPC execution not yet implemented - use executeOrchestrator instead'

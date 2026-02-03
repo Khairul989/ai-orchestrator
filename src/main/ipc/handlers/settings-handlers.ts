@@ -20,6 +20,23 @@ import type {
   RemoteConfigDiscoverGitPayload,
   RemoteConfigInvalidatePayload
 } from '../../../shared/types/ipc.types';
+import {
+  SettingsGetPayloadSchema,
+  SettingsUpdatePayloadSchema,
+  SettingsBulkUpdatePayloadSchema,
+  SettingsResetOnePayloadSchema,
+  ConfigResolvePayloadSchema,
+  ConfigGetProjectPayloadSchema,
+  ConfigSaveProjectPayloadSchema,
+  ConfigCreateProjectPayloadSchema,
+  ConfigFindProjectPayloadSchema,
+  RemoteConfigFetchUrlPayloadSchema,
+  RemoteConfigFetchWellKnownPayloadSchema,
+  RemoteConfigFetchGitHubPayloadSchema,
+  RemoteConfigDiscoverGitPayloadSchema,
+  RemoteConfigInvalidatePayloadSchema,
+  validateIpcPayload
+} from '../../../shared/validation/ipc-schemas';
 import type { AppSettings, ProjectConfig } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import {
@@ -69,11 +86,16 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
   // Get single setting
   ipcMain.handle(
     IPC_CHANNELS.SETTINGS_GET,
-    async (event: IpcMainInvokeEvent, key: string): Promise<IpcResponse> => {
+    async (event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          SettingsGetPayloadSchema,
+          payload,
+          'SETTINGS_GET'
+        );
         return {
           success: true,
-          data: settings.get(key as keyof AppSettings)
+          data: settings.get(validated.key as keyof AppSettings)
         };
       } catch (error) {
         return {
@@ -96,13 +118,20 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
       payload: SettingsSetPayload
     ): Promise<IpcResponse> => {
       try {
-        settings.set(payload.key as keyof AppSettings, payload.value as any);
+        // Validate payload at IPC boundary
+        const validatedPayload = validateIpcPayload(
+          SettingsUpdatePayloadSchema,
+          payload,
+          'SETTINGS_SET'
+        );
+
+        settings.set(validatedPayload.key as keyof AppSettings, validatedPayload.value as any);
         // Notify renderer of change
         deps.windowManager
           .getMainWindow()
           ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
-            key: payload.key,
-            value: payload.value
+            key: validatedPayload.key,
+            value: validatedPayload.value
           });
         return { success: true };
       } catch (error) {
@@ -123,10 +152,19 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.SETTINGS_UPDATE,
     async (
       event: IpcMainInvokeEvent,
-      payload: SettingsUpdatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        settings.update(payload.settings as Partial<AppSettings>);
+        const validated = validateIpcPayload(
+          SettingsBulkUpdatePayloadSchema,
+          payload,
+          'SETTINGS_UPDATE'
+        );
+
+        // If payload has a 'settings' key, use that; otherwise treat payload as settings
+        const settingsData = validated.settings || validated;
+
+        settings.update(settingsData as Partial<AppSettings>);
         // Notify renderer of changes
         deps.windowManager
           .getMainWindow()
@@ -181,16 +219,21 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.SETTINGS_RESET_ONE,
     async (
       event: IpcMainInvokeEvent,
-      payload: SettingsResetOnePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        settings.resetOne(payload.key as keyof AppSettings);
-        const value = settings.get(payload.key as keyof AppSettings);
+        const validated = validateIpcPayload(
+          SettingsResetOnePayloadSchema,
+          payload,
+          'SETTINGS_RESET_ONE'
+        );
+        settings.resetOne(validated.key as keyof AppSettings);
+        const value = settings.get(validated.key as keyof AppSettings);
         // Notify renderer
         deps.windowManager
           .getMainWindow()
           ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
-            key: payload.key,
+            key: validated.key,
             value
           });
         return {
@@ -219,10 +262,15 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.CONFIG_RESOLVE,
     async (
       event: IpcMainInvokeEvent,
-      payload: ConfigResolvePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const resolved = resolveConfig(payload.workingDirectory);
+        const validated = validateIpcPayload(
+          ConfigResolvePayloadSchema,
+          payload,
+          'CONFIG_RESOLVE'
+        );
+        const resolved = resolveConfig(validated.workingDirectory);
         return {
           success: true,
           data: resolved
@@ -245,16 +293,21 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.CONFIG_GET_PROJECT,
     async (
       event: IpcMainInvokeEvent,
-      payload: ConfigGetProjectPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const config = loadProjectConfig(payload.configPath);
+        const validated = validateIpcPayload(
+          ConfigGetProjectPayloadSchema,
+          payload,
+          'CONFIG_GET_PROJECT'
+        );
+        const config = loadProjectConfig(validated.configPath);
         if (!config) {
           return {
             success: false,
             error: {
               code: 'CONFIG_NOT_FOUND',
-              message: `Project config not found at ${payload.configPath}`,
+              message: `Project config not found at ${validated.configPath}`,
               timestamp: Date.now()
             }
           };
@@ -281,12 +334,17 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.CONFIG_SAVE_PROJECT,
     async (
       event: IpcMainInvokeEvent,
-      payload: ConfigSaveProjectPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          ConfigSaveProjectPayloadSchema,
+          payload,
+          'CONFIG_SAVE_PROJECT'
+        );
         const saved = saveProjectConfig(
-          payload.configPath,
-          payload.config as ProjectConfig
+          validated.configPath,
+          validated.config as ProjectConfig
         );
         return {
           success: saved,
@@ -294,7 +352,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
             ? undefined
             : {
                 code: 'CONFIG_SAVE_FAILED',
-                message: `Failed to save project config to ${payload.configPath}`,
+                message: `Failed to save project config to ${validated.configPath}`,
                 timestamp: Date.now()
               }
         };
@@ -316,12 +374,17 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.CONFIG_CREATE_PROJECT,
     async (
       event: IpcMainInvokeEvent,
-      payload: ConfigCreateProjectPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          ConfigCreateProjectPayloadSchema,
+          payload,
+          'CONFIG_CREATE_PROJECT'
+        );
         const configPath = createProjectConfig(
-          payload.projectDir,
-          payload.config as Partial<ProjectConfig>
+          validated.projectDir,
+          validated.config as Partial<ProjectConfig>
         );
         return {
           success: true,
@@ -345,10 +408,15 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.CONFIG_FIND_PROJECT,
     async (
       event: IpcMainInvokeEvent,
-      payload: ConfigFindProjectPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const configPath = findProjectConfigPath(payload.startDir);
+        const validated = validateIpcPayload(
+          ConfigFindProjectPayloadSchema,
+          payload,
+          'CONFIG_FIND_PROJECT'
+        );
+        const configPath = findProjectConfigPath(validated.startDir);
         return {
           success: true,
           data: { configPath }
@@ -375,14 +443,19 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.REMOTE_CONFIG_FETCH_URL,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RemoteConfigFetchUrlPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const config = await remoteConfigManager.fetchFromUrl(payload.url, {
-          timeout: payload.timeout,
-          cacheTTL: payload.cacheTTL,
-          maxRetries: payload.maxRetries,
-          useCache: payload.useCache
+        const validated = validateIpcPayload(
+          RemoteConfigFetchUrlPayloadSchema,
+          payload,
+          'REMOTE_CONFIG_FETCH_URL'
+        );
+        const config = await remoteConfigManager.fetchFromUrl(validated.url, {
+          timeout: validated.timeout,
+          cacheTTL: validated.cacheTTL,
+          maxRetries: validated.maxRetries,
+          useCache: validated.useCache
         });
         return { success: true, data: config };
       } catch (error) {
@@ -403,14 +476,19 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.REMOTE_CONFIG_FETCH_WELL_KNOWN,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RemoteConfigFetchWellKnownPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          RemoteConfigFetchWellKnownPayloadSchema,
+          payload,
+          'REMOTE_CONFIG_FETCH_WELL_KNOWN'
+        );
         const config = await remoteConfigManager.fetchFromWellKnown(
-          payload.domain,
+          validated.domain,
           {
-            timeout: payload.timeout,
-            cacheTTL: payload.cacheTTL
+            timeout: validated.timeout,
+            cacheTTL: validated.cacheTTL
           }
         );
         return { success: true, data: config };
@@ -432,13 +510,18 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.REMOTE_CONFIG_FETCH_GITHUB,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RemoteConfigFetchGitHubPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          RemoteConfigFetchGitHubPayloadSchema,
+          payload,
+          'REMOTE_CONFIG_FETCH_GITHUB'
+        );
         const config = await remoteConfigManager.fetchFromGitHub(
-          payload.owner,
-          payload.repo,
-          payload.branch
+          validated.owner,
+          validated.repo,
+          validated.branch
         );
         return { success: true, data: config };
       } catch (error) {
@@ -459,11 +542,16 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.REMOTE_CONFIG_DISCOVER_GIT,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RemoteConfigDiscoverGitPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          RemoteConfigDiscoverGitPayloadSchema,
+          payload,
+          'REMOTE_CONFIG_DISCOVER_GIT'
+        );
         const config = await remoteConfigManager.discoverForGitRepo(
-          payload.gitRemoteUrl
+          validated.gitRemoteUrl
         );
         return { success: true, data: config };
       } catch (error) {
@@ -524,10 +612,15 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     IPC_CHANNELS.REMOTE_CONFIG_INVALIDATE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RemoteConfigInvalidatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        remoteConfigManager.invalidateCache(payload.url);
+        const validated = validateIpcPayload(
+          RemoteConfigInvalidatePayloadSchema,
+          payload,
+          'REMOTE_CONFIG_INVALIDATE'
+        );
+        remoteConfigManager.invalidateCache(validated.url);
         return { success: true };
       } catch (error) {
         return {

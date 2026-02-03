@@ -17,6 +17,14 @@ import type {
   WatcherStatus
 } from '../../../shared/types/codebase.types';
 import {
+  validateIpcPayload,
+  CodebaseIndexStorePayloadSchema,
+  CodebaseIndexFilePayloadSchema,
+  CodebaseWatcherPayloadSchema,
+  StoreIdSchema,
+} from '../../../shared/validation/ipc-schemas';
+import { z } from 'zod';
+import {
   getCodebaseIndexingService,
   getHybridSearchService,
   getCodebaseFileWatcher
@@ -67,10 +75,11 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       payload: CodebaseIndexStorePayload
     ): Promise<IpcResponse<IndexingStats>> => {
       try {
+        const validated = validateIpcPayload(CodebaseIndexStorePayloadSchema, payload, 'CODEBASE_INDEX_STORE');
         const stats = await indexingService.indexCodebase(
-          payload.storeId,
-          payload.rootPath,
-          payload.options
+          validated.storeId,
+          validated.rootPath,
+          validated.options
         );
         return { success: true, data: stats };
       } catch (error) {
@@ -94,7 +103,8 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       payload: CodebaseIndexFilePayload
     ): Promise<IpcResponse<void>> => {
       try {
-        await indexingService.indexFile(payload.storeId, payload.filePath);
+        const validated = validateIpcPayload(CodebaseIndexFilePayloadSchema, payload, 'CODEBASE_INDEX_FILE');
+        await indexingService.indexFile(validated.storeId, validated.filePath);
         return { success: true };
       } catch (error) {
         return {
@@ -157,7 +167,12 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       payload: { storeId: string }
     ): Promise<IpcResponse<IndexStats>> => {
       try {
-        const stats = await indexingService.getStats(payload.storeId);
+        const validated = validateIpcPayload(
+          z.object({ storeId: StoreIdSchema }),
+          payload,
+          'CODEBASE_INDEX_STATS'
+        );
+        const stats = await indexingService.getStats(validated.storeId);
         return { success: true, data: stats };
       } catch (error) {
         return {
@@ -242,7 +257,9 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       payload: CodebaseWatcherPayload
     ): Promise<IpcResponse<void>> => {
       try {
-        if (!payload.rootPath) {
+        const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_START');
+
+        if (!validated.rootPath) {
           return {
             success: false,
             error: {
@@ -253,7 +270,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
           };
         }
 
-        await fileWatcher.startWatching(payload.storeId, payload.rootPath);
+        await fileWatcher.startWatching(validated.storeId, validated.rootPath);
         return { success: true };
       } catch (error) {
         return {
@@ -276,7 +293,8 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       payload: CodebaseWatcherPayload
     ): Promise<IpcResponse<void>> => {
       try {
-        await fileWatcher.stopWatching(payload.storeId);
+        const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_STOP');
+        await fileWatcher.stopWatching(validated.storeId);
         return { success: true };
       } catch (error) {
         return {
@@ -299,12 +317,13 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       payload: CodebaseWatcherPayload
     ): Promise<IpcResponse<WatcherStatus>> => {
       try {
-        const status = fileWatcher.getStatus(payload.storeId);
+        const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_STATUS');
+        const status = fileWatcher.getStatus(validated.storeId);
         if (!status) {
           return {
             success: true,
             data: {
-              storeId: payload.storeId,
+              storeId: validated.storeId,
               rootPath: '',
               isWatching: false,
               pendingChanges: 0

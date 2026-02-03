@@ -3,7 +3,7 @@
  * Header section of the dashboard sidebar with title and action buttons
  */
 
-import { Component, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 import { AgentSelectorComponent } from '../agents/agent-selector.component';
 import {
   ProviderSelectorComponent,
@@ -14,6 +14,7 @@ import {
   selector: 'app-sidebar-header',
   standalone: true,
   imports: [ProviderSelectorComponent, AgentSelectorComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-header">
       <div class="header-row">

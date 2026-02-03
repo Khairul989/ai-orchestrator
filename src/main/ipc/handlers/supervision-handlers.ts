@@ -131,7 +131,7 @@ export function registerSupervisionHandlers(): void {
 
   // Get hierarchy tree for UI visualization
   ipcMain.handle(
-    'supervision:get-hierarchy',
+    IPC_CHANNELS.SUPERVISION_GET_HIERARCHY,
     async (): Promise<IpcResponse> => {
       try {
         const hierarchy = supervisorTree.getHierarchyTree();
@@ -219,7 +219,7 @@ export function registerSupervisionHandlers(): void {
 
   // Get all registrations (for UI)
   ipcMain.handle(
-    'supervision:get-all-registrations',
+    IPC_CHANNELS.SUPERVISION_GET_ALL_REGISTRATIONS,
     async (): Promise<IpcResponse> => {
       try {
         const registrations = supervisorTree.getAllRegistrations();
@@ -275,15 +275,15 @@ function setupSupervisionEventForwarding(): void {
   });
 
   supervisorTree.on('supervision:exhausted', (data) => {
-    forwardToRenderer('supervision:exhausted', data);
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_EXHAUSTED, data);
   });
 
   supervisorTree.on('health:changed', (data) => {
-    forwardToRenderer('supervision:health-changed', data);
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_HEALTH_CHANGED, data);
   });
 
   supervisorTree.on('health:global', (data) => {
-    forwardToRenderer('supervision:health-global', data);
+    forwardToRenderer(IPC_CHANNELS.SUPERVISION_HEALTH_GLOBAL, data);
   });
 
   // Forward tree structure changes

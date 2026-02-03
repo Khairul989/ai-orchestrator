@@ -46,18 +46,20 @@ interface DisplayItem {
       @for (item of displayItems(); track $index) {
         @if (item.type === 'thought-group') {
           <!-- Thought group with collapsible thinking section -->
-          <div class="thought-group">
-            @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
-              @if (showThinking()) {
-                <app-thought-process
-                  [thoughts]="item.thoughts || []"
-                  [thinkingBlocks]="item.thinking"
-                  [label]="getThoughtLabel(item.thoughts || [])"
-                  [defaultExpanded]="thinkingDefaultExpanded()"
-                />
+          <!-- Only render thought-group if there's something to display -->
+          @if (hasThoughtGroupContent(item)) {
+            <div class="thought-group">
+              @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
+                @if (showThinking()) {
+                  <app-thought-process
+                    [thoughts]="item.thoughts || []"
+                    [thinkingBlocks]="item.thinking"
+                    [label]="getThoughtLabel(item.thoughts || [])"
+                    [defaultExpanded]="thinkingDefaultExpanded()"
+                  />
+                }
               }
-            }
-            @if (item.response) {
+              @if (item.response && hasContent(item.response)) {
               <div class="message message-assistant">
                 <div class="message-header">
                   <span class="message-type">{{
@@ -118,7 +120,8 @@ interface DisplayItem {
                 </div>
               </div>
             }
-          </div>
+            </div>
+          }
         } @else if (item.message) {
           <!-- Regular message -->
           @if (hasContent(item.message)) {
@@ -786,6 +789,19 @@ export class OutputStreamComponent {
       return true;
     }
     return !!message.content?.trim();
+  }
+
+  /**
+   * Check if a thought-group has any content to display
+   * Returns false if thinking is hidden AND response is empty
+   */
+  hasThoughtGroupContent(item: DisplayItem): boolean {
+    const hasThinking = (item.thinking && item.thinking.length > 0) ||
+                       (item.thoughts && item.thoughts.length > 0);
+    const showsThinking = hasThinking && this.showThinking();
+    const hasResponse = !!(item.response && this.hasContent(item.response));
+
+    return showsThinking || hasResponse;
   }
 
   getToolName(message: OutputMessage): string {

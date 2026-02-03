@@ -16,6 +16,18 @@ import type {
   PlanModeUpdatePayload,
   PlanModeGetStatePayload
 } from '../../../shared/types/ipc.types';
+import {
+  CommandExecutePayloadSchema,
+  CommandCreatePayloadSchema,
+  CommandUpdatePayloadSchema,
+  CommandDeletePayloadSchema,
+  PlanModeEnterPayloadSchema,
+  PlanModeExitPayloadSchema,
+  PlanModeApprovePayloadSchema,
+  PlanModeUpdatePayloadSchema,
+  PlanModeGetStatePayloadSchema,
+  validateIpcPayload
+} from '../../../shared/validation/ipc-schemas';
 import { getCommandManager } from '../../commands/command-manager';
 import { InstanceManager } from '../../instance/instance-manager';
 
@@ -56,19 +68,24 @@ export function registerCommandHandlers(
     IPC_CHANNELS.COMMAND_EXECUTE,
     async (
       event: IpcMainInvokeEvent,
-      payload: CommandExecutePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          CommandExecutePayloadSchema,
+          payload,
+          'COMMAND_EXECUTE'
+        );
         const resolved = commands.executeCommand(
-          payload.commandId,
-          payload.args || []
+          validated.commandId,
+          validated.args || []
         );
         if (!resolved) {
           return {
             success: false,
             error: {
               code: 'COMMAND_NOT_FOUND',
-              message: `Command ${payload.commandId} not found`,
+              message: `Command ${validated.commandId} not found`,
               timestamp: Date.now()
             }
           };
@@ -76,7 +93,7 @@ export function registerCommandHandlers(
 
         // Send the resolved prompt to the instance
         await instanceManager.sendInput(
-          payload.instanceId,
+          validated.instanceId,
           resolved.resolvedPrompt
         );
 
@@ -102,10 +119,15 @@ export function registerCommandHandlers(
     IPC_CHANNELS.COMMAND_CREATE,
     async (
       event: IpcMainInvokeEvent,
-      payload: CommandCreatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const command = commands.createCommand(payload);
+        const validated = validateIpcPayload(
+          CommandCreatePayloadSchema,
+          payload,
+          'COMMAND_CREATE'
+        );
+        const command = commands.createCommand(validated);
         return {
           success: true,
           data: command
@@ -128,19 +150,24 @@ export function registerCommandHandlers(
     IPC_CHANNELS.COMMAND_UPDATE,
     async (
       event: IpcMainInvokeEvent,
-      payload: CommandUpdatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          CommandUpdatePayloadSchema,
+          payload,
+          'COMMAND_UPDATE'
+        );
         const updated = commands.updateCommand(
-          payload.commandId,
-          payload.updates
+          validated.commandId,
+          validated.updates
         );
         if (!updated) {
           return {
             success: false,
             error: {
               code: 'COMMAND_NOT_FOUND',
-              message: `Command ${payload.commandId} not found or is built-in`,
+              message: `Command ${validated.commandId} not found or is built-in`,
               timestamp: Date.now()
             }
           };
@@ -167,17 +194,22 @@ export function registerCommandHandlers(
     IPC_CHANNELS.COMMAND_DELETE,
     async (
       event: IpcMainInvokeEvent,
-      payload: CommandDeletePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const deleted = commands.deleteCommand(payload.commandId);
+        const validated = validateIpcPayload(
+          CommandDeletePayloadSchema,
+          payload,
+          'COMMAND_DELETE'
+        );
+        const deleted = commands.deleteCommand(validated.commandId);
         return {
           success: deleted,
           error: deleted
             ? undefined
             : {
                 code: 'COMMAND_NOT_FOUND',
-                message: `Command ${payload.commandId} not found or is built-in`,
+                message: `Command ${validated.commandId} not found or is built-in`,
                 timestamp: Date.now()
               }
         };
@@ -203,10 +235,15 @@ export function registerCommandHandlers(
     IPC_CHANNELS.PLAN_MODE_ENTER,
     async (
       event: IpcMainInvokeEvent,
-      payload: PlanModeEnterPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const instance = instanceManager.enterPlanMode(payload.instanceId);
+        const validated = validateIpcPayload(
+          PlanModeEnterPayloadSchema,
+          payload,
+          'PLAN_MODE_ENTER'
+        );
+        const instance = instanceManager.enterPlanMode(validated.instanceId);
         return {
           success: true,
           data: { planMode: instance.planMode }
@@ -229,12 +266,17 @@ export function registerCommandHandlers(
     IPC_CHANNELS.PLAN_MODE_EXIT,
     async (
       event: IpcMainInvokeEvent,
-      payload: PlanModeExitPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          PlanModeExitPayloadSchema,
+          payload,
+          'PLAN_MODE_EXIT'
+        );
         const instance = instanceManager.exitPlanMode(
-          payload.instanceId,
-          payload.force
+          validated.instanceId,
+          validated.force
         );
         return {
           success: true,
@@ -258,12 +300,17 @@ export function registerCommandHandlers(
     IPC_CHANNELS.PLAN_MODE_APPROVE,
     async (
       event: IpcMainInvokeEvent,
-      payload: PlanModeApprovePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          PlanModeApprovePayloadSchema,
+          payload,
+          'PLAN_MODE_APPROVE'
+        );
         const instance = instanceManager.approvePlan(
-          payload.instanceId,
-          payload.planContent
+          validated.instanceId,
+          validated.planContent
         );
         return {
           success: true,
@@ -287,12 +334,17 @@ export function registerCommandHandlers(
     IPC_CHANNELS.PLAN_MODE_UPDATE,
     async (
       event: IpcMainInvokeEvent,
-      payload: PlanModeUpdatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(
+          PlanModeUpdatePayloadSchema,
+          payload,
+          'PLAN_MODE_UPDATE'
+        );
         const instance = instanceManager.updatePlanContent(
-          payload.instanceId,
-          payload.planContent
+          validated.instanceId,
+          validated.planContent
         );
         return {
           success: true,
@@ -316,10 +368,15 @@ export function registerCommandHandlers(
     IPC_CHANNELS.PLAN_MODE_GET_STATE,
     async (
       event: IpcMainInvokeEvent,
-      payload: PlanModeGetStatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const state = instanceManager.getPlanModeState(payload.instanceId);
+        const validated = validateIpcPayload(
+          PlanModeGetStatePayloadSchema,
+          payload,
+          'PLAN_MODE_GET_STATE'
+        );
+        const state = instanceManager.getPlanModeState(validated.instanceId);
         return {
           success: true,
           data: state

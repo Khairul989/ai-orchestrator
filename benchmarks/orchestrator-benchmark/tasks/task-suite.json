@@ -57,25 +57,6 @@
       "timeoutMinutes": 5
     },
     {
-      "id": "KA-5",
-      "name": "Trace message to child spawn",
-      "category": "known-answer",
-      "complexity": "large-context",
-      "prompt": "Trace the code path from when a user sends a message in the UI to when a child instance is spawned. List each file and function involved in order.",
-      "workingDirectory": ".",
-      "expectedAnswer": {
-        "files": [
-          "src/renderer",
-          "src/preload",
-          "src/main/ipc",
-          "src/main/instance",
-          "src/main/orchestration"
-        ],
-        "patterns": ["spawn", "child", "IPC"]
-      },
-      "timeoutMinutes": 10
-    },
-    {
       "id": "RC-1",
       "name": "Explain model routing",
       "category": "real-codebase",
@@ -117,6 +98,15 @@
       "category": "real-codebase",
       "complexity": "multi-file",
       "prompt": "What are all the ways an instance can fail in this system? List each failure mode, where it's handled, and what recovery mechanism exists (if any).",
+      "workingDirectory": ".",
+      "timeoutMinutes": 10
+    },
+    {
+      "id": "RC-6",
+      "name": "Trace message to child spawn",
+      "category": "real-codebase",
+      "complexity": "large-context",
+      "prompt": "Trace the code path from when a user sends a message in the UI to when a child instance is spawned. List each file and function involved in order.",
       "workingDirectory": ".",
       "timeoutMinutes": 10
     }

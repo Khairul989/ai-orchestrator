@@ -5,13 +5,14 @@
  * and allows switching between them for new instances.
  */
 
-import { Component, inject, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
 import { AgentStore } from '../../core/state/agent.store';
 import type { AgentProfile } from '../../../../shared/types/agent.types';
 
 @Component({
   selector: 'app-agent-selector',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="agent-selector">
       <button

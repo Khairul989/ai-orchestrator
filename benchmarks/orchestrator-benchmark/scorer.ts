@@ -1,8 +1,10 @@
 /**
  * Scorer - Evaluates benchmark outputs against ground truth
  *
- * For known-answer tasks (KA-1 through KA-5), this compares
+ * For known-answer tasks (KA-1 through KA-4), this compares
  * the model's output against the computed ground truth.
+ *
+ * Note: KA-5 (trace task) was moved to RC-6 as trace completeness is subjective.
  */
 
 import { readFileSync, existsSync } from 'fs';
@@ -29,10 +31,6 @@ interface GroundTruth {
     'KA-4': {
       totalCount: number;
       bugs: Array<{ id: string; description: string }>;
-    };
-    'KA-5': {
-      tracePath: Array<{ file: string; function: string }>;
-      keyFiles: string[];
     };
   };
 }
@@ -68,8 +66,6 @@ export function scoreKnownAnswer(task: BenchmarkTask, output: string): KnownAnsw
       return scoreKA3(output);
     case 'KA-4':
       return scoreKA4(output);
-    case 'KA-5':
-      return scoreKA5(output);
     default:
       throw new Error(`Unknown known-answer task: ${task.id}`);
   }
@@ -218,44 +214,6 @@ function scoreKA4(output: string): KnownAnswerScore {
     correctness: Math.round(correctness * 10) / 10,
     falseNegatives,
     falsePositives,
-  };
-}
-
-/**
- * KA-5: Score trace path accuracy
- */
-function scoreKA5(output: string): KnownAnswerScore {
-  const gt = loadGroundTruth().tasks['KA-5'];
-  const outputLower = output.toLowerCase();
-
-  // Check if key files are mentioned
-  let filesFound = 0;
-  for (const file of gt.keyFiles) {
-    const fileName = file.split('/').pop() || file;
-    if (outputLower.includes(fileName.toLowerCase().replace('.ts', '').replace('/', ''))) {
-      filesFound++;
-    }
-  }
-
-  // Check if key functions/concepts are mentioned
-  let functionsFound = 0;
-  const keyFunctions = ['sendmessage', 'sendinput', 'ipcmain', 'spawnchild', 'createchild'];
-  for (const fn of keyFunctions) {
-    if (outputLower.includes(fn)) {
-      functionsFound++;
-    }
-  }
-
-  // Combined score based on files and functions mentioned
-  const fileScore = gt.keyFiles.length > 0 ? (filesFound / gt.keyFiles.length) : 0;
-  const funcScore = keyFunctions.length > 0 ? (functionsFound / keyFunctions.length) : 0;
-
-  const correctness = ((fileScore + funcScore) / 2) * 100;
-
-  return {
-    correctness: Math.round(correctness * 10) / 10,
-    falseNegatives: gt.keyFiles.length - filesFound,
-    falsePositives: 0, // Hard to determine for trace tasks
   };
 }
 

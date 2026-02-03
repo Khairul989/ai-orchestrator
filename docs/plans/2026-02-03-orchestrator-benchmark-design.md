@@ -11,6 +11,56 @@
 
 ---
 
+## Experiment Config (Locked)
+
+To ensure apples-to-apples comparison, both systems share these fixed parameters:
+
+| Parameter | Value |
+|-----------|-------|
+| Model version | Claude claude-sonnet-4-20250514 (via CLI) |
+| Temperature | 0 (deterministic) |
+| Max output tokens | 16384 |
+| Working directory | Repository root |
+| Tool access | All tools enabled (read, write, bash, etc.) |
+
+**System prompts:**
+- Vanilla: Default Claude CLI system prompt
+- Orchestrator: Default orchestrator system prompt (includes coordination instructions)
+
+**Note:** System prompts are intentionally different; this benchmark measures end-to-end product behavior, not prompt-controlled parity.
+
+---
+
+## Run Isolation & Reset
+
+Each run must start from a clean repository state to avoid contamination:
+
+**Method:** Git worktree per run (preferred)
+1. Create temporary worktree: `git worktree add /tmp/bench-<session>-<run> HEAD`
+2. Execute benchmark run in isolated worktree
+3. Delete worktree after completion: `git worktree remove /tmp/bench-<session>-<run>`
+
+**Fallback method** (if worktrees unavailable):
+1. `git stash --include-untracked`
+2. `git reset --hard HEAD`
+3. Execute run
+4. `git stash pop` (if this fails, abort and reset; do not continue with a dirty tree)
+
+All runs within a session must use the same isolation method.
+
+---
+
+## Run Order Randomization
+
+To reduce drift bias (API performance, caching effects, time-of-day variations):
+- Randomize task order within each session
+- Randomize system order (vanilla vs orchestrator) per task
+- Randomize context stage order per system
+
+The runner logs the randomized order for reproducibility.
+
+---
+
 ## Task Categories
 
 ### Category A: Known-Answer Tasks (Objective)
@@ -23,7 +73,7 @@ Tasks on the orchestrator repo evaluated by LLM judges.
 
 ## Task Suite (10 Tasks)
 
-### Known-Answer Tasks
+### Known-Answer Tasks (4 tasks)
 
 | ID | Task | Complexity | Verification Method |
 |----|------|------------|---------------------|
@@ -31,9 +81,8 @@ Tasks on the orchestrator repo evaluated by LLM judges.
 | KA-2 | "List all singleton services with `getInstance()`" | Multi-file | File list match |
 | KA-3 | "What files import from `orchestration-handler.ts`?" | Multi-file | File list match |
 | KA-4 | Inject 3 bugs into test files, ask "find the bugs" | Multi-file | Found 3/3? |
-| KA-5 | "Trace a message from user input to child spawn" | Large-context | Key files mentioned |
 
-### Real Codebase Tasks
+### Real Codebase Tasks (6 tasks)
 
 | ID | Task | Complexity |
 |----|------|------------|
@@ -42,6 +91,9 @@ Tasks on the orchestrator repo evaluated by LLM judges.
 | RC-3 | "Review the fast-path retrieval code for edge cases" | Multi-file |
 | RC-4 | "How would you add a new orchestrator command?" | Large-context |
 | RC-5 | "What are all the ways an instance can fail?" | Multi-file |
+| RC-6 | "Trace a message from user input to child spawn" | Large-context |
+
+> **Note:** RC-6 was moved from Known-Answer (KA-5) because trace completeness is inherently subjective - there's no single "correct" trace path.
 
 ---
 
@@ -64,7 +116,6 @@ Tasks on the orchestrator repo evaluated by LLM judges.
 ### Secondary Metrics (All Tasks)
 - Total tokens used (cost proxy)
 - Wall-clock time
-- Number of files examined
 
 ---
 
@@ -79,8 +130,8 @@ Tasks on the orchestrator repo evaluated by LLM judges.
 | Stage | Context Fill | Description |
 |-------|--------------|-------------|
 | Fresh | 0-10% | Task given at start of session |
-| Moderate | 30-50% | After ~50k tokens of prior conversation |
-| Heavy | 70-80% | After ~100k+ tokens of prior work |
+| Moderate | 30-50% | Target tokens computed as % of model context window |
+| Heavy | 70-80% | Target tokens computed as % of model context window |
 
 ### Context Resilience Metric
 ```
@@ -99,6 +150,8 @@ Each task runs:
 
 **Total runs:** 10 tasks × 2 systems × 3 runs × 3 context stages = **180 runs**
 
+**Note:** Run order is randomized to reduce drift bias (see Run Order Randomization section).
+
 ---
 
 ## Architecture
@@ -106,19 +159,20 @@ Each task runs:
 ### Components
 
 ```
-src/main/benchmarks/orchestrator-benchmark/
+benchmarks/orchestrator-benchmark/
 ├── runner.ts              # Main benchmark orchestration
 ├── task-loader.ts         # Load tasks from JSON
-├── vanilla-executor.ts    # Run task with vanilla Claude CLI
-├── orchestrator-executor.ts # Run task with Orchestrator
+├── executors/
+│   ├── vanilla-executor.ts    # Run task with vanilla Claude CLI
+│   └── orchestrator-executor.ts # Run task with Orchestrator
 ├── context-filler.ts      # Pre-fill context to target level
 ├── judge.ts               # Send outputs to Claude + Codex judges
 ├── scorer.ts              # Score known-answer tasks
-├── reporter.ts            # Generate final report
+├── result-storage.ts      # Persist results and generate reports
 ├── tasks/
 │   ├── task-suite.json    # Task definitions
 │   └── setup/             # Setup scripts for known-answer tasks
-└── results/               # Output directory for results
+└── results/               # Output directory for results (gitignored)
 ```
 
 ### Task Definition Format
@@ -152,7 +206,6 @@ interface BenchmarkRun {
 
   // Output
   output: string;
-  filesExamined: string[];
 
   // Metrics
   tokensUsed: number;
@@ -225,7 +278,6 @@ Return JSON:
   - [x] KA-2: Script to list singletons (ground truth)
   - [x] KA-3: Script to find imports (ground truth)
   - [x] KA-4: Script to inject/remove bugs
-  - [x] KA-5: Document expected trace path
 - [x] Create context pre-fill scripts (realistic prior conversation)
 
 ### Phase 3: Judging Pipeline (Needs API calls) ✅

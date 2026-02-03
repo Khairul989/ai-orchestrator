@@ -6,6 +6,9 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { CliCapabilities } from './adapters/base-cli-adapter';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('CliDetection');
 
 /**
  * Information about a detected CLI tool
@@ -181,35 +184,33 @@ export class CliDetectionService {
    * Detect all available CLI tools
    */
   async detectAll(forceRefresh = false): Promise<DetectionResult> {
-    console.log('[CliDetection] detectAll called, forceRefresh:', forceRefresh);
-    console.log('[CliDetection] HOME:', process.env['HOME']);
+    logger.debug('detectAll called', { forceRefresh, home: process.env['HOME'] });
 
     // Check cache
     if (!forceRefresh && this.cache) {
       const age = Date.now() - this.cacheTime;
       if (age < this.cacheTimeout) {
-        console.log('[CliDetection] Returning cached result');
+        logger.debug('Returning cached result');
         return this.cache;
       }
     }
 
     // Detect only supported CLIs (ones with provider implementations)
     const cliTypes = SUPPORTED_CLIS;
-    console.log('[CliDetection] Checking CLIs:', cliTypes);
+    logger.debug('Checking CLIs', { cliTypes });
     const results = await Promise.all(
       cliTypes.map((type) => this.checkCli(type))
     );
 
-    console.log(
-      '[CliDetection] Results:',
-      results.map((r) => ({
+    logger.debug('Detection results', {
+      results: results.map((r) => ({
         name: r.name,
         installed: r.installed,
         version: r.version,
         path: r.path,
         error: r.error
       }))
-    );
+    });
 
     const detectionResult: DetectionResult = {
       detected: results,
@@ -218,10 +219,9 @@ export class CliDetectionService {
       timestamp: new Date()
     };
 
-    console.log(
-      '[CliDetection] Available:',
-      detectionResult.available.map((r) => r.name)
-    );
+    logger.info('CLI detection complete', {
+      available: detectionResult.available.map((r) => r.name)
+    });
 
     // Update cache
     this.cache = detectionResult;
@@ -364,13 +364,12 @@ export class CliDetectionService {
         const currentPath = process.env['PATH'] || '';
         const extendedPath = [...additionalPaths, currentPath].join(':');
 
-        console.log(
-          `[CliDetection] checkCommand: ${command} ${args.join(' ')}`
-        );
-        console.log(`[CliDetection] HOME: ${homeDir}`);
-        console.log(
-          `[CliDetection] Extended PATH includes: ${additionalPaths.join(', ')}`
-        );
+        logger.debug('Checking command', {
+          command,
+          args: args.join(' '),
+          home: homeDir,
+          additionalPaths
+        });
 
         const proc = spawn(command, args, {
           timeout: 5000,
@@ -392,29 +391,28 @@ export class CliDetectionService {
           const output = stdout + stderr;
           const versionMatch = output.match(config.versionPattern);
 
-          console.log(
-            `[CliDetection] ${command} close event: code=${code}, stdout=${stdout.substring(0, 100)}, stderr=${stderr.substring(0, 100)}`
-          );
+          logger.debug('Command close event', {
+            command,
+            code,
+            stdoutPreview: stdout.substring(0, 100),
+            stderrPreview: stderr.substring(0, 100)
+          });
 
           if (code === 0 || versionMatch) {
             result.installed = true;
             result.version = versionMatch?.[1];
             result.path = command;
             result.authenticated = !output.includes('not authenticated');
-            console.log(
-              `[CliDetection] ${command} detected: version=${result.version}`
-            );
+            logger.info('CLI detected', { command, version: result.version });
           } else {
             result.error = stderr.trim() || 'Command failed';
-            console.log(
-              `[CliDetection] ${command} not detected: error=${result.error}`
-            );
+            logger.debug('CLI not detected', { command, error: result.error });
           }
           resolve(result);
         });
 
         proc.on('error', (err) => {
-          console.log(`[CliDetection] ${command} error event: ${err.message}`);
+          logger.debug('Command error event', { command, error: err.message });
           result.error = err.message;
           resolve(result);
         });

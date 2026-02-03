@@ -17,13 +17,19 @@ export enum CliError {
   NETWORK_ERROR = 'CLI_NETWORK_ERROR',
   RATE_LIMIT = 'CLI_RATE_LIMIT',
   INVALID_INPUT = 'CLI_INVALID_INPUT',
+  CONTEXT_OVERFLOW = 'CLI_CONTEXT_OVERFLOW',
   UNKNOWN = 'CLI_UNKNOWN_ERROR',
 }
 
 /**
  * Fallback strategy for error handling
+ * - skip: Ignore the error and continue
+ * - retry: Retry the operation with backoff
+ * - substitute: Use an alternative provider
+ * - fail: Fail immediately with the error
+ * - compact: Compact context and retry (for context overflow)
  */
-export type FallbackStrategy = 'skip' | 'retry' | 'substitute' | 'fail';
+export type FallbackStrategy = 'skip' | 'retry' | 'substitute' | 'fail' | 'compact';
 
 /**
  * Error handler configuration
@@ -106,6 +112,13 @@ export const DEFAULT_ERROR_HANDLERS: Record<CliError, CliErrorHandler> = {
     fallbackStrategy: 'fail',
     userMessage: 'Invalid input provided to CLI.',
   },
+  [CliError.CONTEXT_OVERFLOW]: {
+    error: CliError.CONTEXT_OVERFLOW,
+    fallbackStrategy: 'compact',
+    maxRetries: 1,
+    retryDelay: 1000,
+    userMessage: 'Context is too long. Compacting conversation and retrying...',
+  },
   [CliError.UNKNOWN]: {
     error: CliError.UNKNOWN,
     fallbackStrategy: 'skip',
@@ -146,6 +159,17 @@ export function classifyError(error: Error | string): CliError {
   }
   if (lowerMessage.includes('invalid') || lowerMessage.includes('bad request')) {
     return CliError.INVALID_INPUT;
+  }
+  if (
+    lowerMessage.includes('too long') ||
+    lowerMessage.includes('context length') ||
+    lowerMessage.includes('token limit') ||
+    lowerMessage.includes('context_length_exceeded') ||
+    lowerMessage.includes('max_tokens_exceeded') ||
+    lowerMessage.includes('maximum context') ||
+    lowerMessage.includes('prompt is too long')
+  ) {
+    return CliError.CONTEXT_OVERFLOW;
   }
 
   return CliError.UNKNOWN;
@@ -227,7 +251,7 @@ export async function withRetry<T>(
  * CLI Error Handler Manager
  */
 export class CliErrorManager extends EventEmitter {
-  private handlers: Map<CliError, CliErrorHandler> = new Map();
+  private handlers = new Map<CliError, CliErrorHandler>();
 
   constructor() {
     super();
@@ -286,6 +310,7 @@ export class CliErrorManager extends EventEmitter {
       operation?: string;
       onRetry?: (attempt: number, error: Error) => void;
       onFallback?: (provider: string) => Promise<T>;
+      onCompact?: () => Promise<void>;
     }
   ): Promise<T> {
     try {
@@ -307,6 +332,25 @@ export class CliErrorManager extends EventEmitter {
               return true;
             },
           });
+
+        case 'compact':
+          // Compact context and retry once
+          if (options?.onCompact) {
+            this.emit('compact', { cliName: options.cliName, operation: options.operation });
+            await options.onCompact();
+            // Retry once after compaction
+            return withRetry(fn, {
+              maxRetries: retryCount,
+              retryCondition: (e) => {
+                if (options?.onRetry) {
+                  options.onRetry(retryCount, e);
+                }
+                return true;
+              },
+            });
+          }
+          // If no compact handler, treat as fail
+          throw new Error(`Context overflow: ${userMessage}`);
 
         case 'substitute':
           if (options?.onFallback && substituteProvider) {

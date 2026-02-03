@@ -59,8 +59,6 @@ export interface BenchmarkRun {
 
   /** Raw output from the system */
   output: string;
-  /** Files that were examined/read during execution */
-  filesExamined: string[];
 
   /** Total tokens consumed */
   tokensUsed: number;
@@ -129,7 +127,6 @@ export interface BenchmarkReport {
 
 export interface ExecutorResult {
   output: string;
-  filesExamined: string[];
   tokensUsed: number;
   durationMs: number;
   error?: string;

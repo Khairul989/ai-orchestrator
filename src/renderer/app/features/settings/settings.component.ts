@@ -2,7 +2,7 @@
  * Settings Component - Application settings modal (container)
  */
 
-import { Component, inject, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
 import { OrchestrationSettingsTabComponent } from './orchestration-settings-tab.component';
@@ -33,6 +33,7 @@ type SettingsTab =
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent
   ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       class="settings-overlay"

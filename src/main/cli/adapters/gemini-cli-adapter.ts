@@ -16,6 +16,7 @@ import {
   CliToolCall,
   CliUsage
 } from './base-cli-adapter';
+import { getLogger } from '../../logging/logger';
 import type {
   OutputMessage,
   ContextUsage,
@@ -24,6 +25,8 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+
+const logger = getLogger('GeminiCliAdapter');
 
 /**
  * Gemini CLI specific configuration
@@ -376,7 +379,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     // YOLO mode (auto-approve all actions)
     if (this.cliConfig.yolo) {
-      console.warn('[Security] YOLO mode enabled for Gemini CLI instance', {
+      logger.warn('YOLO mode enabled for Gemini CLI instance', {
         sessionId: this.sessionId,
         model: this.cliConfig.model
       });

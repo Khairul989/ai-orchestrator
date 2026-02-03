@@ -2,7 +2,7 @@
  * CLI Error Component - Shows when no AI CLI is installed
  */
 
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 export interface CliInstallInfo {
   name: string;
@@ -19,6 +19,7 @@ export interface NoCliError {
 @Component({
   selector: 'app-cli-error',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cli-error-container">
       <div class="cli-error-content">

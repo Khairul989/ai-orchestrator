@@ -8,7 +8,7 @@
  * - Color coding: cached (green), loaded (blue), pending (gray)
  */
 
-import { Component, signal, effect, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, signal, effect, computed, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 interface ElectronAPI {
@@ -46,6 +46,7 @@ export interface ContextStats {
   selector: 'app-active-files',
   standalone: true,
   imports: [CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="active-files-container" [class.expanded]="expanded()">
       <!-- Header with toggle and summary -->

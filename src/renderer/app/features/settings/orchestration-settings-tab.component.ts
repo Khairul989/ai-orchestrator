@@ -2,7 +2,7 @@
  * Orchestration Settings Tab Component - Orchestration-related settings
  */
 
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
@@ -11,6 +11,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
   selector: 'app-orchestration-settings-tab',
   standalone: true,
   imports: [SettingRowComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (setting of store.orchestrationSettings(); track setting.key) {
       <app-setting-row

@@ -8,6 +8,7 @@ import { getHistoryManager } from '../history';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getOutputStorageManager } from '../memory';
 import { getHookManager } from '../hooks/hook-manager';
+import { classifyError, CliError } from '../cli/cli-error-handler';
 import type {
   Instance,
   InstanceStatus,
@@ -29,18 +30,129 @@ export interface CommunicationDependencies {
   onInterruptedExit: (instanceId: string) => Promise<void>;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
+  compactContext?: (instanceId: string) => Promise<void>;
 }
+
+/**
+ * Circuit breaker configuration for detecting rapid empty responses
+ */
+interface CircuitBreakerState {
+  consecutiveEmptyResponses: number;
+  lastResponseTimestamp: number;
+  isTripped: boolean;
+}
+
+const CIRCUIT_BREAKER_CONFIG = {
+  maxConsecutiveEmpty: 3,          // Trip after 3 consecutive empty responses
+  minTimeBetweenResponses: 1000,   // Minimum expected time between responses (1s)
+  resetTimeoutMs: 30000,           // Reset circuit after 30s
+  cooldownMs: 5000                 // Wait 5s before allowing retry after trip
+};
 
 export class InstanceCommunicationManager extends EventEmitter {
   private settings = getSettingsManager();
   private outputStorage = getOutputStorageManager();
   private hookManager = getHookManager();
   private deps: CommunicationDependencies;
-  private interruptedInstances: Set<string> = new Set();
+  private interruptedInstances = new Set<string>();
+
+  // Circuit breaker state per instance
+  private circuitBreakers = new Map<string, CircuitBreakerState>();
 
   constructor(deps: CommunicationDependencies) {
     super();
     this.deps = deps;
+  }
+
+  /**
+   * Get or create circuit breaker state for an instance
+   */
+  private getCircuitBreaker(instanceId: string): CircuitBreakerState {
+    let state = this.circuitBreakers.get(instanceId);
+    if (!state) {
+      state = {
+        consecutiveEmptyResponses: 0,
+        lastResponseTimestamp: 0,
+        isTripped: false
+      };
+      this.circuitBreakers.set(instanceId, state);
+    }
+    return state;
+  }
+
+  /**
+   * Record a response and check circuit breaker state
+   * @returns true if circuit is OK, false if tripped
+   */
+  private recordResponse(instanceId: string, hasContent: boolean): boolean {
+    const state = this.getCircuitBreaker(instanceId);
+    const now = Date.now();
+
+    // Check if we should reset after timeout
+    if (state.isTripped && (now - state.lastResponseTimestamp) > CIRCUIT_BREAKER_CONFIG.resetTimeoutMs) {
+      console.log(`[CircuitBreaker] Resetting tripped circuit for ${instanceId} after timeout`);
+      state.isTripped = false;
+      state.consecutiveEmptyResponses = 0;
+    }
+
+    // If circuit is tripped, check cooldown
+    if (state.isTripped) {
+      if ((now - state.lastResponseTimestamp) < CIRCUIT_BREAKER_CONFIG.cooldownMs) {
+        console.log(`[CircuitBreaker] Circuit tripped for ${instanceId}, in cooldown period`);
+        return false;
+      }
+      // Cooldown expired, allow one retry
+      state.isTripped = false;
+      state.consecutiveEmptyResponses = 0;
+      console.log(`[CircuitBreaker] Cooldown expired for ${instanceId}, allowing retry`);
+    }
+
+    state.lastResponseTimestamp = now;
+
+    if (hasContent) {
+      // Good response, reset counter
+      state.consecutiveEmptyResponses = 0;
+      return true;
+    }
+
+    // Empty response
+    state.consecutiveEmptyResponses++;
+    console.log(`[CircuitBreaker] Empty response #${state.consecutiveEmptyResponses} for ${instanceId}`);
+
+    if (state.consecutiveEmptyResponses >= CIRCUIT_BREAKER_CONFIG.maxConsecutiveEmpty) {
+      console.warn(`[CircuitBreaker] TRIPPED for ${instanceId} after ${state.consecutiveEmptyResponses} consecutive empty responses`);
+      state.isTripped = true;
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if circuit is currently tripped for an instance
+   */
+  isCircuitTripped(instanceId: string): boolean {
+    const state = this.circuitBreakers.get(instanceId);
+    return state?.isTripped ?? false;
+  }
+
+  /**
+   * Manually reset circuit breaker for an instance
+   */
+  resetCircuitBreaker(instanceId: string): void {
+    const state = this.circuitBreakers.get(instanceId);
+    if (state) {
+      state.isTripped = false;
+      state.consecutiveEmptyResponses = 0;
+      console.log(`[CircuitBreaker] Manually reset for ${instanceId}`);
+    }
+  }
+
+  /**
+   * Clean up circuit breaker state for an instance
+   */
+  cleanupCircuitBreaker(instanceId: string): void {
+    this.circuitBreakers.delete(instanceId);
   }
 
   // ============================================
@@ -146,6 +258,53 @@ export class InstanceCommunicationManager extends EventEmitter {
     adapter.on('output', async (message: OutputMessage) => {
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
+        // Check circuit breaker for assistant messages
+        if (message.type === 'assistant') {
+          const hasContent = !!(message.content && message.content.trim());
+          const circuitOk = this.recordResponse(instanceId, hasContent);
+
+          if (!circuitOk) {
+            // Circuit tripped - attempt context compaction
+            console.warn(`[InstanceCommunicationManager] Circuit breaker tripped for ${instanceId}, attempting context compaction`);
+
+            // Add warning message
+            const warningMessage: OutputMessage = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system',
+              content: 'Detected multiple empty responses. Attempting to recover by compacting context...',
+              metadata: { circuitBreakerTripped: true }
+            };
+            this.addToOutputBuffer(instance, warningMessage);
+            this.emit('output', { instanceId, message: warningMessage });
+
+            // Attempt compaction if available
+            if (this.deps.compactContext) {
+              try {
+                await this.deps.compactContext(instanceId);
+                this.resetCircuitBreaker(instanceId);
+
+                const recoveryMessage: OutputMessage = {
+                  id: generateId(),
+                  timestamp: Date.now(),
+                  type: 'system',
+                  content: 'Context compacted. You can continue the conversation.',
+                  metadata: { circuitBreakerRecovered: true }
+                };
+                this.addToOutputBuffer(instance, recoveryMessage);
+                this.emit('output', { instanceId, message: recoveryMessage });
+              } catch (compactErr) {
+                console.error(`[InstanceCommunicationManager] Compaction failed during circuit breaker recovery:`, compactErr);
+              }
+            }
+
+            // Don't add empty messages to buffer when circuit is tripped
+            if (!hasContent) {
+              return;
+            }
+          }
+        }
+
         // Trigger hooks for tool_use events (PreToolUse)
         if (message.type === 'tool_use' && message.metadata) {
           const metadata = message.metadata as Record<string, unknown>;
@@ -226,11 +385,57 @@ export class InstanceCommunicationManager extends EventEmitter {
       console.log('[InstanceCommunicationManager] input-required event emitted');
     });
 
-    adapter.on('error', (error: Error) => {
+    adapter.on('error', async (error: Error) => {
       const instance = this.deps.getInstance(instanceId);
       console.error(`Instance ${instanceId} error (status: ${instance?.status}):`, error);
 
       if (instance) {
+        // Check if this is a context overflow error
+        const errorType = classifyError(error);
+        if (errorType === CliError.CONTEXT_OVERFLOW) {
+          console.log(`[InstanceCommunicationManager] Context overflow detected for ${instanceId}, attempting compaction...`);
+
+          // Add a system message to inform the user
+          const compactingMessage: OutputMessage = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content: 'Context is too long. Compacting conversation history...',
+            metadata: { contextOverflow: true }
+          };
+          this.addToOutputBuffer(instance, compactingMessage);
+          this.emit('output', { instanceId, message: compactingMessage });
+
+          // Attempt context compaction if handler is available
+          if (this.deps.compactContext) {
+            try {
+              await this.deps.compactContext(instanceId);
+              console.log(`[InstanceCommunicationManager] Context compaction completed for ${instanceId}`);
+
+              // Add success message
+              const successMessage: OutputMessage = {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'system',
+                content: 'Context compacted. You can continue the conversation.',
+                metadata: { contextCompacted: true }
+              };
+              this.addToOutputBuffer(instance, successMessage);
+              this.emit('output', { instanceId, message: successMessage });
+
+              // Don't mark as error - let user retry
+              instance.status = 'idle';
+              this.deps.queueUpdate(instanceId, 'idle');
+              return;
+            } catch (compactErr) {
+              console.error(`[InstanceCommunicationManager] Context compaction failed for ${instanceId}:`, compactErr);
+              // Fall through to normal error handling
+            }
+          } else {
+            console.warn(`[InstanceCommunicationManager] No compactContext handler available for ${instanceId}`);
+          }
+        }
+
         instance.errorCount++;
 
         // Don't mark as error if we're in the middle of respawning - let respawnAfterInterrupt handle it

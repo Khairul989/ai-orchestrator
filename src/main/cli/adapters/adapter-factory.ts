@@ -14,6 +14,9 @@ import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { CopilotSdkAdapter, CopilotSdkConfig } from './copilot-sdk-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('AdapterFactory');
 
 /**
  * Unified spawn options that work across all adapters
@@ -63,22 +66,23 @@ export async function resolveCliType(
   defaultType: SettingsCliType = 'auto'
 ): Promise<CliType> {
   const detection = CliDetectionService.getInstance();
-  console.log(`[AdapterFactory] resolveCliType called with requested=${requestedType}, default=${defaultType}`);
+  logger.debug('resolveCliType called', { requestedType, defaultType });
 
   // If explicitly requested (not 'auto'), try to use it
   if (requestedType && requestedType !== 'auto') {
     const cliType = mapSettingsToDetectionType(requestedType as SettingsCliType);
-    console.log(`[AdapterFactory] Mapped ${requestedType} -> ${cliType}`);
+    logger.debug('Mapped requested type to CLI type', { requestedType, cliType });
     if (cliType !== 'auto') {
       // Verify it's available
       const result = await detection.detectAll();
-      console.log(`[AdapterFactory] Available CLIs: ${result.available.map(c => c.name).join(', ')}`);
+      const availableClis = result.available.map(c => c.name);
+      logger.debug('Available CLIs', { clis: availableClis });
       const isAvailable = result.available.some((cli) => cli.name === cliType);
-      console.log(`[AdapterFactory] Is ${cliType} available? ${isAvailable}`);
+      logger.debug('Checking availability', { cliType, isAvailable });
       if (isAvailable) {
         return cliType;
       }
-      console.warn(`[AdapterFactory] Requested CLI '${requestedType}' (mapped to '${cliType}') not available, falling back to auto`);
+      logger.warn('Requested CLI not available, falling back to auto', { requestedType, cliType });
     }
   }
 
@@ -97,17 +101,17 @@ export async function resolveCliType(
   // Fall back to first available CLI (priority: claude > codex > gemini > ollama)
   const result = await detection.detectAll();
   const priority: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'ollama'];
-  console.log(`[AdapterFactory] Falling back to auto-detect from: ${priority.join(', ')}`);
+  logger.debug('Falling back to auto-detect', { priority });
 
   for (const cli of priority) {
     if (result.available.some((c) => c.name === cli)) {
-      console.log(`[AdapterFactory] Auto-selected: ${cli}`);
+      logger.info('Auto-selected CLI', { cli });
       return cli;
     }
   }
 
   // Default to Claude if nothing is detected (will fail gracefully later)
-  console.warn('[AdapterFactory] No CLI detected, defaulting to claude');
+  logger.warn('No CLI detected, defaulting to claude');
   return 'claude';
 }
 
@@ -191,7 +195,7 @@ export function createCliAdapter(
 
     case 'ollama':
       // Ollama doesn't have a full CLI adapter yet, fall back to Claude
-      console.warn('[AdapterFactory] Ollama adapter not implemented, falling back to Claude');
+      logger.warn('Ollama adapter not implemented, falling back to Claude');
       return createClaudeAdapter(options);
 
     default:

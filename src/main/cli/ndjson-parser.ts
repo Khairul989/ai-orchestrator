@@ -3,6 +3,9 @@
  */
 
 import type { CliStreamMessage } from '../../shared/types/cli.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('NdjsonParser');
 
 // Default max buffer size: 1MB
 const DEFAULT_MAX_BUFFER_KB = 1024;
@@ -39,7 +42,7 @@ export class NdjsonParser {
     // Check buffer size limit
     const bufferSize = this.getBufferSize();
     if (bufferSize > this.maxBufferBytes) {
-      console.warn(`NDJSON buffer exceeded max size (${bufferSize} > ${this.maxBufferBytes} bytes). Resetting buffer.`);
+      logger.warn('NDJSON buffer exceeded max size, resetting', { bufferSize, maxBufferBytes: this.maxBufferBytes });
       // Try to salvage what we can from complete lines
       const lines = this.buffer.split('\n');
       this.buffer = ''; // Reset buffer
@@ -76,15 +79,13 @@ export class NdjsonParser {
 
         // Log input_required messages specifically for debugging
         if (parsed.type === 'input_required') {
-          console.log('=== [NdjsonParser] DETECTED input_required MESSAGE ===');
-          console.log('[NdjsonParser] Raw line:', trimmed);
-          console.log('[NdjsonParser] Parsed message:', JSON.stringify(parsed, null, 2));
+          logger.debug('Detected input_required message', { rawLine: trimmed, parsed });
         }
 
         messages.push(parsed);
       } catch (error) {
         // Log parse errors but continue processing
-        console.warn('Failed to parse NDJSON line:', trimmed.substring(0, 100), error);
+        logger.warn('Failed to parse NDJSON line', { linePreview: trimmed.substring(0, 100), error });
       }
     }
 
@@ -107,7 +108,7 @@ export class NdjsonParser {
       return [parsed];
     } catch {
       // Final content wasn't valid JSON
-      console.warn('Discarding incomplete NDJSON buffer:', this.buffer);
+      logger.warn('Discarding incomplete NDJSON buffer', { buffer: this.buffer });
       this.buffer = '';
       return [];
     }

@@ -129,10 +129,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         prompts.push(contentWithoutFrontmatter.trim());
       }
 
-      console.log(`[CLAUDE.md] Loaded global prompt from ${globalClaudeMdPath}`);
+      logger.debug('Loaded global CLAUDE.md prompt', { path: globalClaudeMdPath });
     } catch (error) {
       // Global CLAUDE.md is optional
-      console.log('[CLAUDE.md] No global CLAUDE.md found (this is optional)');
+      logger.debug('No global CLAUDE.md found (optional)');
     }
 
     // Load project CLAUDE.md from {workDir}/.claude/CLAUDE.md
@@ -146,10 +146,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         prompts.push(contentWithoutFrontmatter.trim());
       }
 
-      console.log(`[CLAUDE.md] Loaded project prompt from ${projectClaudeMdPath}`);
+      logger.debug('Loaded project CLAUDE.md prompt', { path: projectClaudeMdPath });
     } catch (error) {
       // Project CLAUDE.md is optional
-      console.log('[CLAUDE.md] No project CLAUDE.md found (this is optional)');
+      logger.debug('No project CLAUDE.md found (optional)');
     }
 
     return prompts;
@@ -163,7 +163,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Create a new instance
    */
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
-    console.log('InstanceLifecycleManager: Creating instance with config:', config);
+    logger.info('Creating instance', { config });
 
     // Resolve agent profile
     const agent = config.agentId
@@ -306,22 +306,24 @@ export class InstanceLifecycleManager extends EventEmitter {
     if (claudeMdPrompts.length > 0) {
       const claudeMdSection = claudeMdPrompts.join('\n\n---\n\n');
       systemPrompt = `${claudeMdSection}\n\n---\n\n${systemPrompt}`;
-      console.log(`[CLAUDE.md] Prepended ${claudeMdPrompts.length} prompt(s) to system prompt`);
+      logger.info('Prepended CLAUDE.md prompts to system prompt', { count: claudeMdPrompts.length });
     }
 
     // Resolve CLI provider type
     const settingsAll = this.settings.getAll();
-    console.log(
-      `[InstanceLifecycleManager] Requested provider: ${config.provider}, default: ${settingsAll.defaultCli}`
-    );
+    logger.debug('Resolving provider', {
+      requested: config.provider,
+      default: settingsAll.defaultCli
+    });
     const resolvedCliType = await resolveCliType(
       config.provider,
       settingsAll.defaultCli
     );
     instance.provider = resolvedCliType as any;
-    console.log(
-      `[InstanceLifecycleManager] Resolved CLI provider: ${resolvedCliType} (${getCliDisplayName(resolvedCliType)})`
-    );
+    logger.info('Resolved CLI provider', {
+      cliType: resolvedCliType,
+      displayName: getCliDisplayName(resolvedCliType)
+    });
 
     // Default allowed tools for non-YOLO mode
     const defaultAllowedTools = instance.yoloMode ? undefined : [
@@ -331,7 +333,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     ];
 
     if (!instance.yoloMode && defaultAllowedTools) {
-      console.log('[InstanceLifecycleManager] Non-YOLO mode: Pre-allowing tools:', defaultAllowedTools.join(', '));
+      logger.debug('Non-YOLO mode: Pre-allowing tools', { tools: defaultAllowedTools });
     }
 
     // Create CLI adapter
@@ -356,11 +358,11 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     // Spawn the CLI process
     try {
-      console.log('InstanceLifecycleManager: Spawning CLI process for provider:', resolvedCliType);
+      logger.info('Spawning CLI process', { provider: resolvedCliType });
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
-      console.log('InstanceLifecycleManager: CLI spawned with PID:', pid);
+      logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
       // Send initial prompt if provided
       if (config.initialPrompt) {
@@ -401,7 +403,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     );
 
     // Emit creation event
-    console.log('InstanceLifecycleManager: Emitting instance:created event');
+    logger.debug('Emitting instance:created event', { instanceId: instance.id });
     this.emit('created', this.deps.serializeForIpc(instance));
 
     return instance;
@@ -468,7 +470,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             const child = this.deps.getInstance(childId);
             if (child) {
               child.parentId = null;
-              console.log(`[Supervision] Orphaned child instance ${childId}`);
+              logger.info('Orphaned child instance', { childId, parentId: instanceId });
             }
           }
           break;
@@ -480,7 +482,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             if (child) {
               child.parentId = null;
               child.depth = 0;
-              console.log(`[Supervision] Reparented child instance ${childId} to root`);
+              logger.info('Reparented child instance to root', { childId, formerParentId: instanceId });
             }
           }
           break;
@@ -623,7 +625,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     const oldAgentId = instance.agentId;
-    console.log(`[InstanceLifecycleManager] Changing agent mode for ${instanceId}: ${oldAgentId} -> ${newAgentId}`);
+    logger.info('Changing agent mode', { instanceId, oldAgentId, newAgentId });
 
     // Terminate existing adapter
     const oldAdapter = this.deps.getAdapter(instanceId);
@@ -709,23 +711,31 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     const newYoloMode = !instance.yoloMode;
-    console.log(`[InstanceLifecycleManager] Toggling YOLO mode for ${instanceId}: ${instance.yoloMode} -> ${newYoloMode}`);
-    console.log(`[InstanceLifecycleManager] Current adapter exists: ${!!this.deps.getAdapter(instanceId)}`);
+    logger.info('Toggling YOLO mode', {
+      instanceId,
+      currentYoloMode: instance.yoloMode,
+      newYoloMode,
+      adapterExists: !!this.deps.getAdapter(instanceId)
+    });
 
     // Check if there's actually a conversation to resume
     // If outputBuffer is empty (or only contains system messages), start fresh instead of resuming
     const hasConversation = instance.outputBuffer.some(
       (msg) => msg.type === 'user' || msg.type === 'assistant'
     );
-    console.log(`[InstanceLifecycleManager] Has conversation to resume: ${hasConversation}, outputBuffer length: ${instance.outputBuffer.length}`);
+    logger.debug('Checking conversation resume status', {
+      instanceId,
+      hasConversation,
+      outputBufferLength: instance.outputBuffer.length
+    });
 
     // Terminate existing adapter
     const oldAdapter = this.deps.getAdapter(instanceId);
     if (oldAdapter) {
-      console.log(`[InstanceLifecycleManager] Terminating old adapter for ${instanceId}`);
+      logger.debug('Terminating old adapter', { instanceId });
       // Delete from map FIRST to prevent race condition with exit handler
       this.deps.deleteAdapter(instanceId);
-      console.log(`[InstanceLifecycleManager] Old adapter deleted from map, now terminating`);
+      logger.debug('Old adapter deleted from map, now terminating', { instanceId });
       await oldAdapter.terminate(true);
       logger.debug('Old adapter terminated', { instanceId });
     }
@@ -766,22 +776,29 @@ export class InstanceLifecycleManager extends EventEmitter {
       // Only resume if there's actually a conversation to continue
       resume: hasConversation
     };
-    console.log(`[InstanceLifecycleManager] Spawn options: resume=${spawnOptions.resume}, sessionId=${spawnOptions.sessionId}`);
+    logger.debug('Spawn options configured', {
+      instanceId,
+      resume: spawnOptions.resume,
+      sessionId: spawnOptions.sessionId
+    });
 
     const adapter = createCliAdapter(cliType, spawnOptions);
 
-    console.log(`[InstanceLifecycleManager] Setting up adapter events for ${instanceId}`);
+    logger.debug('Setting up adapter events', { instanceId });
     this.deps.setupAdapterEvents(instanceId, adapter);
-    console.log(`[InstanceLifecycleManager] Storing new adapter for ${instanceId}`);
+    logger.debug('Storing new adapter', { instanceId });
     this.deps.setAdapter(instanceId, adapter);
-    console.log(`[InstanceLifecycleManager] New adapter stored, adapter exists: ${!!this.deps.getAdapter(instanceId)}`);
+    logger.debug('New adapter stored', {
+      instanceId,
+      adapterExists: !!this.deps.getAdapter(instanceId)
+    });
 
     try {
-      console.log(`[InstanceLifecycleManager] Spawning new adapter for ${instanceId}`);
+      logger.debug('Spawning new adapter', { instanceId });
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
-      console.log(`[InstanceLifecycleManager] YOLO mode toggled successfully, PID: ${pid}`);
+      logger.info('YOLO mode toggled successfully', { instanceId, pid, newYoloMode });
       logger.debug('Adapter exists after spawn', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
 
       const modeMessage = newYoloMode
@@ -802,7 +819,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       yoloMode: newYoloMode
     });
 
-    console.log(`[InstanceLifecycleManager] toggleYoloMode complete, final adapter check: ${!!this.deps.getAdapter(instanceId)}`);
+    logger.debug('toggleYoloMode complete', {
+      instanceId,
+      adapterExists: !!this.deps.getAdapter(instanceId)
+    });
     return instance;
   }
 
@@ -856,7 +876,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Respawn an instance after interrupt to continue the session
    */
   async respawnAfterInterrupt(instanceId: string): Promise<void> {
-    console.log(`respawnAfterInterrupt: Starting for instance ${instanceId}`);
+    logger.info('Starting respawn after interrupt', { instanceId });
 
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
@@ -864,7 +884,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     const sessionId = instance.sessionId;
-    console.log(`respawnAfterInterrupt: Session ID = ${sessionId}`);
+    logger.debug('Respawning with session ID', { instanceId, sessionId });
 
     if (!sessionId) {
       throw new Error(`Instance ${instanceId} has no session ID to resume`);
@@ -901,9 +921,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps.setAdapter(instanceId, adapter);
 
     try {
-      console.log(`respawnAfterInterrupt: Spawning new process...`);
+      logger.debug('Spawning new process after interrupt', { instanceId });
       const pid = await adapter.spawn();
-      console.log(`respawnAfterInterrupt: Process spawned with PID ${pid}`);
+      logger.info('Process respawned successfully', { instanceId, pid });
 
       instance.processId = pid;
       instance.status = 'idle';
@@ -919,9 +939,9 @@ export class InstanceLifecycleManager extends EventEmitter {
       this.emit('output', { instanceId, message });
 
       this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-      logger.info('respawnAfterInterrupt complete', { instanceId });
+      logger.info('Respawn after interrupt complete', { instanceId });
     } catch (error) {
-      logger.error('respawnAfterInterrupt: Failed to spawn', error instanceof Error ? error : undefined, { instanceId });
+      logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
       instance.status = 'error';
       instance.processId = null;
       this.deps.queueUpdate(instanceId, 'error');
@@ -955,7 +975,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       planMode: instance.planMode
     });
 
-    console.log(`Entered plan mode for instance ${instanceId}`);
+    logger.info('Entered plan mode', { instanceId });
     return instance;
   }
 
@@ -989,7 +1009,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       planMode: instance.planMode
     });
 
-    console.log(`Exited plan mode for instance ${instanceId}`);
+    logger.info('Exited plan mode', { instanceId });
     return instance;
   }
 
@@ -1019,7 +1039,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       planMode: instance.planMode
     });
 
-    console.log(`Approved plan for instance ${instanceId}`);
+    logger.info('Approved plan', { instanceId });
     return instance;
   }
 
@@ -1111,9 +1131,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         instance.status === 'idle' &&
         now - instance.lastActivity > idleThreshold
       ) {
-        console.log(
-          `Auto-terminating idle instance ${instance.id} (${instance.displayName})`
-        );
+        logger.info('Auto-terminating idle instance', {
+          instanceId: instance.id,
+          displayName: instance.displayName,
+          idleMinutes
+        });
         this.terminateInstance(instance.id, true);
       }
     });
@@ -1131,9 +1153,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     const toTerminate = Math.ceil(idleInstances.length / 2);
     for (let i = 0; i < toTerminate && i < idleInstances.length; i++) {
-      console.log(
-        `Terminating idle instance ${idleInstances[i].id} due to memory pressure`
-      );
+      logger.warn('Terminating idle instance due to memory pressure', {
+        instanceId: idleInstances[i].id,
+        displayName: idleInstances[i].displayName
+      });
       this.terminateInstance(idleInstances[i].id, true);
     }
   }
@@ -1147,7 +1170,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       if (adapter && (instance.status === 'error' || instance.status === 'terminated')) {
         if (adapter.isRunning()) {
-          console.log(`Found zombie process for ${instance.status} instance ${instanceId}, force killing`);
+          logger.warn('Found zombie process, force killing', {
+            instanceId,
+            status: instance.status
+          });
           adapterEntriesToCleanup.push(instanceId);
         } else {
           this.deps.deleteAdapter(instanceId);
@@ -1155,7 +1181,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       if (instance.processId && !this.deps.getAdapter(instanceId)) {
-        console.log(`Instance ${instanceId} claims PID ${instance.processId} but has no adapter, clearing PID`);
+        logger.warn('Instance claims PID but has no adapter, clearing PID', {
+          instanceId,
+          processId: instance.processId
+        });
         instance.processId = null;
         if (instance.status === 'busy' || instance.status === 'initializing') {
           instance.status = 'error';
@@ -1198,7 +1227,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
 
     this.memoryMonitor.on('critical', (stats) => {
-      console.log('Memory critical:', stats);
+      logger.error('Memory critical', undefined, stats as Record<string, unknown>);
       this.emit('memory:critical', stats);
 
       const settingsAll = this.settings.getAll();

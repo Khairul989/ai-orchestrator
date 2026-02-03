@@ -2,7 +2,7 @@
  * Memory Settings Tab Component - Memory and context-related settings
  */
 
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
@@ -11,6 +11,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
   selector: 'app-memory-settings-tab',
   standalone: true,
   imports: [SettingRowComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (setting of store.memorySettings(); track setting.key) {
       <app-setting-row

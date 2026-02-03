@@ -18,6 +18,9 @@ import {
   InstanceSendInputPayloadSchema,
   InstanceTerminatePayloadSchema,
   InstanceRenamePayloadSchema,
+  InstanceChangeAgentPayloadSchema,
+  InputRequiredResponsePayloadSchema,
+  UserActionResponsePayloadSchema,
   validateIpcPayload
 } from '../../../shared/validation/ipc-schemas';
 import { InstanceManager } from '../../instance/instance-manager';
@@ -205,9 +208,16 @@ export function registerInstanceHandlers(deps: {
       payload: InstanceTerminatePayload
     ): Promise<IpcResponse> => {
       try {
+        // Validate payload at IPC boundary
+        const validatedPayload = validateIpcPayload(
+          InstanceTerminatePayloadSchema,
+          payload,
+          'INSTANCE_TERMINATE'
+        );
+
         await instanceManager.terminateInstance(
-          payload.instanceId,
-          payload.graceful ?? true
+          validatedPayload.instanceId,
+          validatedPayload.graceful ?? true
         );
 
         return { success: true };
@@ -283,9 +293,16 @@ export function registerInstanceHandlers(deps: {
       payload: InstanceRenamePayload
     ): Promise<IpcResponse> => {
       try {
+        // Validate payload at IPC boundary
+        const validatedPayload = validateIpcPayload(
+          InstanceRenamePayloadSchema,
+          payload,
+          'INSTANCE_RENAME'
+        );
+
         instanceManager.renameInstance(
-          payload.instanceId,
-          payload.displayName
+          validatedPayload.instanceId,
+          validatedPayload.displayName
         );
 
         return { success: true };
@@ -310,9 +327,16 @@ export function registerInstanceHandlers(deps: {
       payload: { instanceId: string; agentId: string }
     ): Promise<IpcResponse> => {
       try {
+        // Validate payload at IPC boundary
+        const validatedPayload = validateIpcPayload(
+          InstanceChangeAgentPayloadSchema,
+          payload,
+          'INSTANCE_CHANGE_AGENT_MODE'
+        );
+
         const instance = await instanceManager.changeAgentMode(
-          payload.instanceId,
-          payload.agentId
+          validatedPayload.instanceId,
+          validatedPayload.agentId
         );
 
         return {
@@ -418,16 +442,30 @@ export function registerInstanceHandlers(deps: {
       payload: { requestId: string; approved: boolean; selectedOption?: string }
     ): Promise<IpcResponse> => {
       try {
+        // Map the payload to match the schema (action is approve/reject/custom, not approved)
+        const mappedPayload = {
+          requestId: payload.requestId,
+          action: payload.approved ? 'approve' : 'reject' as const,
+          customValue: payload.selectedOption
+        };
+
+        // Validate payload at IPC boundary
+        const validatedPayload = validateIpcPayload(
+          UserActionResponsePayloadSchema,
+          mappedPayload,
+          'USER_ACTION_RESPOND'
+        );
+
         const orchestration = instanceManager.getOrchestrationHandler();
         orchestration.respondToUserAction(
-          payload.requestId,
-          payload.approved,
-          payload.selectedOption
+          validatedPayload.requestId,
+          validatedPayload.action === 'approve',
+          validatedPayload.customValue
         );
 
         return {
           success: true,
-          data: { requestId: payload.requestId, responded: true }
+          data: { requestId: validatedPayload.requestId, responded: true }
         };
       } catch (error) {
         return {
@@ -510,16 +548,23 @@ export function registerInstanceHandlers(deps: {
       }
     ): Promise<IpcResponse> => {
       try {
+        // Validate payload at IPC boundary
+        const validatedPayload = validateIpcPayload(
+          InputRequiredResponsePayloadSchema,
+          payload,
+          'INPUT_REQUIRED_RESPOND'
+        );
+
         // Send the response to the CLI via stdin
         await instanceManager.sendInputResponse(
-          payload.instanceId,
-          payload.response,
-          payload.permissionKey
+          validatedPayload.instanceId,
+          validatedPayload.response,
+          validatedPayload.permissionKey
         );
 
         return {
           success: true,
-          data: { requestId: payload.requestId, responded: true }
+          data: { requestId: validatedPayload.requestId, responded: true }
         };
       } catch (error) {
         return {
