@@ -209,30 +209,30 @@ Return JSON:
 
 ## Implementation Phases
 
-### Phase 1: Core Harness (No API usage)
-- [ ] Create directory structure
-- [ ] Implement `task-loader.ts`
-- [ ] Implement `vanilla-executor.ts` - spawn Claude CLI, capture output
-- [ ] Implement `orchestrator-executor.ts` - spawn orchestrator instance
-- [ ] Implement `context-filler.ts` - pre-fill context to target levels
-- [ ] Implement result storage (JSON files)
-- [ ] Basic `runner.ts` that can execute tasks
+### Phase 1: Core Harness (No API usage) ✅
+- [x] Create directory structure
+- [x] Implement `task-loader.ts`
+- [x] Implement `vanilla-executor.ts` - spawn Claude CLI, capture output
+- [x] Implement `orchestrator-executor.ts` - spawn orchestrator instance
+- [x] Implement `context-filler.ts` - pre-fill context to target levels
+- [x] Implement result storage (JSON files)
+- [x] Basic `runner.ts` that can execute tasks
 
-### Phase 2: Task Suite (No API usage)
-- [ ] Create `task-suite.json` with all 10 tasks
-- [ ] Create setup scripts for known-answer tasks:
-  - [ ] KA-1: Script to count IPC handlers (ground truth)
-  - [ ] KA-2: Script to list singletons (ground truth)
-  - [ ] KA-3: Script to find imports (ground truth)
-  - [ ] KA-4: Script to inject/remove bugs
-  - [ ] KA-5: Document expected trace path
-- [ ] Create context pre-fill scripts (realistic prior conversation)
+### Phase 2: Task Suite (No API usage) ✅
+- [x] Create `task-suite.json` with all 10 tasks
+- [x] Create setup scripts for known-answer tasks:
+  - [x] KA-1: Script to count IPC handlers (ground truth)
+  - [x] KA-2: Script to list singletons (ground truth)
+  - [x] KA-3: Script to find imports (ground truth)
+  - [x] KA-4: Script to inject/remove bugs
+  - [x] KA-5: Document expected trace path
+- [x] Create context pre-fill scripts (realistic prior conversation)
 
 ### Phase 3: Judging Pipeline (Needs API calls)
 - [ ] Implement `judge.ts` with Claude integration
 - [ ] Add Codex integration to `judge.ts`
 - [ ] Implement blind randomization
-- [ ] Implement `scorer.ts` for known-answer evaluation
+- [x] Implement `scorer.ts` for known-answer evaluation
 - [ ] Agreement tracking and human review flagging
 
 ### Phase 4: Execution (After usage reset)
