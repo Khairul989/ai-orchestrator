@@ -37,3 +37,6 @@ archive/
 # Benchmark results (large, generated data)
 benchmarks/orchestrator-benchmark/results/
 benchmarks/orchestrator-benchmark/dist/
+
+# Git worktrees
+.worktrees/
