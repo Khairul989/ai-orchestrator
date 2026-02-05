@@ -246,8 +246,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       yoloMode: settings.defaultYoloMode,
       agentId: selectedAgent.id,
       provider: provider === 'auto' ? undefined : provider,
-      // Pass model when using Copilot
-      model: provider === 'copilot' ? model : undefined
+      model: model || undefined
     });
   }
 

@@ -335,7 +335,7 @@ export class InstanceManager extends EventEmitter {
     // Prepend orchestration prompt to first message
     if (!this.hasReceivedFirstMessage.has(instanceId)) {
       this.hasReceivedFirstMessage.add(instanceId);
-      const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId);
+      const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
       const prefix = contextBlock ? `${contextBlock}\n\n` : '';
       contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
     }

@@ -162,11 +162,10 @@ export const DEFAULT_HOT_SWITCHER_CONFIG: HotSwitcherConfig = {
  * Model-specific system prompt hints
  */
 const MODEL_HINTS: Record<string, string> = {
-  // Claude models
-  'claude-opus-4-5-20251101': '',
-  'claude-sonnet-4-20250514': '',
-  'claude-3-5-sonnet-20241022': '',
-  'claude-3-5-haiku-20241022': 'Be concise. Prioritize speed over thoroughness.',
+  // Claude models (bare shorthand names)
+  opus: '',
+  sonnet: '',
+  haiku: 'Be concise. Prioritize speed over thoroughness.',
 
   // OpenAI models
   'gpt-4o': 'Format code blocks with language tags.',

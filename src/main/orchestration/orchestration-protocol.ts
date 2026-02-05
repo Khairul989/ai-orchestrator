@@ -155,10 +155,13 @@ export type OrchestratorCommand =
 /**
  * Generate the system prompt that explains orchestration capabilities to Claude
  */
-export function generateOrchestrationPrompt(instanceId: string): string {
+export function generateOrchestrationPrompt(instanceId: string, currentModel?: string): string {
+  const modelIdentity = currentModel
+    ? `You are currently running as **${currentModel}**.\n\n`
+    : '';
   return `## 🎭 You Are an Orchestrator
 
-You are a **parent instance** in AI Orchestrator. You can spawn and manage child AI instances for parallel work.
+${modelIdentity}You are a **parent instance** in AI Orchestrator. You can spawn and manage child AI instances for parallel work.
 
 ### When to Spawn Children
 - Multiple files/modules to analyze in parallel

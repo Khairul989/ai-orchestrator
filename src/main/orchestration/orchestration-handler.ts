@@ -164,8 +164,8 @@ export class OrchestrationHandler extends EventEmitter {
   /**
    * Get the orchestration prompt to prepend to the first message
    */
-  getOrchestrationPrompt(instanceId: string): string {
-    return generateOrchestrationPrompt(instanceId);
+  getOrchestrationPrompt(instanceId: string, currentModel?: string): string {
+    return generateOrchestrationPrompt(instanceId, currentModel);
   }
 
   /**

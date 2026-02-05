@@ -18,7 +18,7 @@ export class ProviderStateService {
   readonly selectedProvider = signal<ProviderType>('claude');
 
   /** Currently selected model */
-  readonly selectedModel = signal<string>('claude-opus-4-5');
+  readonly selectedModel = signal<string>('opus');
 
   /** Whether Copilot is the selected provider */
   readonly isCopilot = computed(() => this.selectedProvider() === 'copilot');

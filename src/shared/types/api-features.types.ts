@@ -222,9 +222,13 @@ export const MIN_CACHEABLE_TOKENS: Record<string, number> = {
 // ============================================
 
 /**
- * Check if a model supports prompt caching
+ * Check if a model supports prompt caching.
+ * Handles both full model IDs (claude-sonnet-4-5-20250929) and bare names (sonnet).
  */
 export function supportsPromptCaching(model: string): boolean {
+  const lower = model.toLowerCase();
+  // Bare shorthand names always resolve to latest (which supports caching)
+  if (lower === 'opus' || lower === 'sonnet' || lower === 'haiku') return true;
   return PROMPT_CACHING_MODELS.some((m) => model.includes(m.split('-').slice(0, 3).join('-')));
 }
 
@@ -236,9 +240,14 @@ export function supportsContextEditing(model: string): boolean {
 }
 
 /**
- * Get minimum cacheable tokens for a model
+ * Get minimum cacheable tokens for a model.
+ * Handles both full model IDs and bare shorthand names.
  */
 export function getMinCacheableTokens(model: string): number {
+  const lower = model.toLowerCase();
+  // Bare shorthand names — use conservative defaults for latest models
+  if (lower === 'opus' || lower === 'haiku') return 4096;
+  if (lower === 'sonnet') return 1024;
   for (const [key, value] of Object.entries(MIN_CACHEABLE_TOKENS)) {
     if (model.includes(key.split('-').slice(0, 3).join('-'))) {
       return value;

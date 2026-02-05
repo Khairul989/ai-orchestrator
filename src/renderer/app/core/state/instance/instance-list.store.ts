@@ -92,6 +92,7 @@ export class InstanceListStore {
         model: config.model,
       });
       console.log('InstanceListStore: createInstance result:', result);
+      this.stateService.setLoading(false);
     } catch (error) {
       console.error('InstanceListStore: createInstance error:', error);
       this.stateService.setLoading(false);
@@ -145,6 +146,7 @@ export class InstanceListStore {
         model,
       });
       console.log('InstanceListStore: createInstanceWithMessage result:', result);
+      this.stateService.setLoading(false);
     } catch (error) {
       console.error('InstanceListStore: createInstanceWithMessage error:', error);
       this.stateService.setLoading(false);

@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultYoloMode: false,
   defaultWorkingDirectory: '',
   defaultCli: 'auto',
-  defaultModel: 'claude-opus-4-5',
+  defaultModel: 'opus',
   theme: 'dark',
 
   // Orchestration
@@ -159,9 +159,9 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     type: 'select',
     category: 'general',
     options: [
-      { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
-      { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
-      { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+      { value: 'opus', label: 'Opus (latest)' },
+      { value: 'sonnet', label: 'Sonnet (latest)' },
+      { value: 'haiku', label: 'Haiku (latest)' },
       { value: 'gpt-4o', label: 'GPT-4o' },
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
       { value: 'o3', label: 'OpenAI o3' },

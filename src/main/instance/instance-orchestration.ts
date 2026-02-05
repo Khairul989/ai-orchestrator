@@ -86,8 +86,8 @@ export class InstanceOrchestrationManager {
   /**
    * Get orchestration prompt for first message
    */
-  getOrchestrationPrompt(instanceId: string): string {
-    return this.orchestration.getOrchestrationPrompt(instanceId);
+  getOrchestrationPrompt(instanceId: string, currentModel?: string): string {
+    return this.orchestration.getOrchestrationPrompt(instanceId, currentModel);
   }
 
   // ============================================

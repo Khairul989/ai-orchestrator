@@ -39,6 +39,37 @@ export class SettingsManager extends EventEmitter {
       name: 'settings',
       defaults: DEFAULT_SETTINGS,
     }) as unknown as Store<AppSettings>;
+
+    // Migrate stale model names to bare shorthand names
+    this.migrateModelNames();
+  }
+
+  /**
+   * Migrate old full model IDs (e.g. 'claude-opus-4-5') to bare shorthand names ('opus').
+   * electron-store persists values, so changing DEFAULT_SETTINGS alone won't update
+   * already-persisted values.
+   */
+  private migrateModelNames(): void {
+    const MODEL_MIGRATION: Record<string, string> = {
+      'claude-opus-4-5': 'opus',
+      'claude-opus-4-5-20250918': 'opus',
+      'claude-sonnet-4-5': 'sonnet',
+      'claude-sonnet-4-5-20250929': 'sonnet',
+      'claude-haiku-4-5': 'haiku',
+      'claude-haiku-4-5-20251001': 'haiku',
+      // Older generation
+      'claude-sonnet-4-20250514': 'sonnet',
+      'claude-opus-4-20250514': 'opus',
+      'claude-3-5-sonnet-20241022': 'sonnet',
+      'claude-3-5-haiku-20241022': 'haiku',
+    };
+
+    const currentModel = this.store.get('defaultModel');
+    if (currentModel && MODEL_MIGRATION[currentModel]) {
+      const newModel = MODEL_MIGRATION[currentModel];
+      console.log(`[SettingsManager] Migrating defaultModel: '${currentModel}' → '${newModel}'`);
+      this.store.set('defaultModel', newModel);
+    }
   }
 
   /**

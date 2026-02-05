@@ -278,6 +278,20 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     const args = this.buildArgs(message);
     this.process = this.spawnProcess(args);
 
+    // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
+    let spawnError: Error | null = null;
+    this.process.on('error', (err) => {
+      spawnError = new Error(`Failed to spawn gemini CLI: ${err.message}`);
+      this.emit('error', spawnError);
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: spawnError.message,
+      } as OutputMessage);
+      this.process = null;
+    });
+
     // Gemini uses positional prompt, close stdin
     if (this.process.stdin) {
       this.process.stdin.end();
@@ -287,6 +301,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     if (!stdout) return;
 
     for await (const chunk of stdout) {
+      if (spawnError) return;
       const chunkStr = chunk.toString();
       // Parse stream-json and extract content
       const lines = chunkStr.split('\n').filter((l: string) => l.trim());

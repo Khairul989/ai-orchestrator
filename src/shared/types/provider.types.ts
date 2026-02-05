@@ -131,18 +131,19 @@ export interface ProviderSessionOptions {
 }
 
 /**
- * Claude model identifiers - UPDATE THESE WHEN NEW MODELS RELEASE
+ * Claude model identifiers - bare shorthand names so the CLI always resolves to the latest version.
+ * No need to update these when new models release.
  * All other files should import and reference these constants.
  */
 export const CLAUDE_MODELS = {
-  // Current models (4.5 generation)
-  HAIKU: 'claude-haiku-4-5-20251001',
-  SONNET: 'claude-sonnet-4-5-20250929',
-  OPUS: 'claude-opus-4-5-20250918',
+  // Current models (bare names → always latest)
+  HAIKU: 'haiku',
+  SONNET: 'sonnet',
+  OPUS: 'opus',
   // Aliases for routing tiers
-  FAST: 'claude-haiku-4-5-20251001',
-  BALANCED: 'claude-sonnet-4-5-20250929',
-  POWERFUL: 'claude-opus-4-5-20250918',
+  FAST: 'haiku',
+  BALANCED: 'sonnet',
+  POWERFUL: 'opus',
 } as const;
 
 /**
@@ -202,10 +203,14 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
  * Known model pricing (USD per million tokens)
  */
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Claude 4.5 models (current)
+  // Claude current models (bare shorthand keys)
   [CLAUDE_MODELS.SONNET]: { input: 3.0, output: 15.0 },
   [CLAUDE_MODELS.OPUS]: { input: 5.0, output: 25.0 },
   [CLAUDE_MODELS.HAIKU]: { input: 1.0, output: 5.0 },
+  // Claude models (full IDs for API-level pricing lookups)
+  'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
+  'claude-opus-4-5-20250918': { input: 5.0, output: 25.0 },
+  'claude-haiku-4-5-20251001': { input: 1.0, output: 5.0 },
   // Claude 4 models (legacy)
   'claude-sonnet-4-20250514': { input: 3.0, output: 15.0 },
   'claude-opus-4-20250514': { input: 15.0, output: 75.0 },
@@ -238,9 +243,9 @@ export interface ModelDisplayInfo {
  */
 export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   claude: [
-    { id: CLAUDE_MODELS.OPUS, name: 'Opus 4.5', tier: 'powerful' },
-    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet 4.5', tier: 'balanced' },
-    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku 4.5', tier: 'fast' },
+    { id: CLAUDE_MODELS.OPUS, name: 'Opus (latest)', tier: 'powerful' },
+    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet (latest)', tier: 'balanced' },
+    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku (latest)', tier: 'fast' },
   ],
   codex: [
     { id: OPENAI_MODELS.GPT4O, name: 'GPT-4o', tier: 'powerful' },

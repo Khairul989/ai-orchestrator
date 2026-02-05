@@ -195,14 +195,14 @@ export interface AttachmentDisplay {
     }
 
     .message-user .file-attachment {
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(0, 0, 0, 0.25);
       border-color: rgba(255, 255, 255, 0.2);
-      color: #1a1a1a;
+      color: rgba(255, 255, 255, 0.95);
     }
 
     .message-user .file-attachment .file-name,
     .message-user .file-attachment .file-size {
-      color: #1a1a1a;
+      color: rgba(255, 255, 255, 0.95);
     }
 
     .file-icon {

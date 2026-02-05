@@ -130,7 +130,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       logger.debug('Loaded global CLAUDE.md prompt', { path: globalClaudeMdPath });
-    } catch (error) {
+    } catch {
       // Global CLAUDE.md is optional
       logger.debug('No global CLAUDE.md found (optional)');
     }
@@ -147,7 +147,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       logger.debug('Loaded project CLAUDE.md prompt', { path: projectClaudeMdPath });
-    } catch (error) {
+    } catch {
       // Project CLAUDE.md is optional
       logger.debug('No project CLAUDE.md found (optional)');
     }
@@ -319,14 +319,24 @@ export class InstanceLifecycleManager extends EventEmitter {
       config.provider,
       settingsAll.defaultCli
     );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CliType (cli-detection) vs CliType (settings) mismatch
     instance.provider = resolvedCliType as any;
     logger.info('Resolved CLI provider', {
       cliType: resolvedCliType,
       displayName: getCliDisplayName(resolvedCliType)
     });
 
-    // Set current model if specified
-    instance.currentModel = config.modelOverride || undefined;
+    // Resolve model: explicit override > agent override > settings default
+    const settingsModel = settingsAll.defaultModel;
+    const resolvedModel = config.modelOverride || resolvedAgent.modelOverride || settingsModel || undefined;
+    instance.currentModel = resolvedModel;
+
+    logger.info('Resolved model for instance', {
+      configOverride: config.modelOverride,
+      agentOverride: resolvedAgent.modelOverride,
+      settingsDefault: settingsModel,
+      resolved: resolvedModel,
+    });
 
     // Default allowed tools for non-YOLO mode
     const defaultAllowedTools = instance.yoloMode ? undefined : [
@@ -339,8 +349,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       logger.debug('Non-YOLO mode: Pre-allowing tools', { tools: defaultAllowedTools });
     }
 
-    // Create CLI adapter
-    const modelOverride = config.modelOverride || resolvedAgent.modelOverride;
+    // Create CLI adapter - use resolved model
+    const modelOverride = resolvedModel;
     const spawnOptions: UnifiedSpawnOptions = {
       sessionId: instance.sessionId,
       workingDirectory: config.workingDirectory,
@@ -421,7 +431,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    */
   async terminateInstance(
     instanceId: string,
-    graceful: boolean = true
+    graceful = true
   ): Promise<void> {
     const adapter = this.deps.getAdapter(instanceId);
     const instance = this.deps.getInstance(instanceId);
@@ -577,7 +587,8 @@ export class InstanceLifecycleManager extends EventEmitter {
     const spawnOptions: UnifiedSpawnOptions = {
       sessionId: newSessionId,
       workingDirectory: instance.workingDirectory,
-      yoloMode: instance.yoloMode
+      yoloMode: instance.yoloMode,
+      model: instance.currentModel
     };
 
     const adapter = createCliAdapter(cliType, spawnOptions);
@@ -661,6 +672,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       workingDirectory: instance.workingDirectory,
       systemPrompt: newAgent.systemPrompt,
       yoloMode: instance.yoloMode,
+      model: instance.currentModel,
       allowedTools: defaultAllowedTools,
       disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
       resume: true
@@ -1007,6 +1019,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         workingDirectory: instance.workingDirectory,
         sessionId: sessionId,
         yoloMode: instance.yoloMode,
+        model: instance.currentModel,
         resume: true,
         forkSession: true
       });
@@ -1014,7 +1027,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       const spawnOptions: UnifiedSpawnOptions = {
         sessionId: newSessionId,
         workingDirectory: instance.workingDirectory,
-        yoloMode: instance.yoloMode
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel
       };
       adapter = createCliAdapter(cliType, spawnOptions);
     }
