@@ -325,6 +325,9 @@ export class InstanceLifecycleManager extends EventEmitter {
       displayName: getCliDisplayName(resolvedCliType)
     });
 
+    // Set current model if specified
+    instance.currentModel = config.modelOverride || undefined;
+
     // Default allowed tools for non-YOLO mode
     const defaultAllowedTools = instance.yoloMode ? undefined : [
       'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
@@ -823,6 +826,104 @@ export class InstanceLifecycleManager extends EventEmitter {
       instanceId,
       adapterExists: !!this.deps.getAdapter(instanceId)
     });
+    return instance;
+  }
+
+  // ============================================
+  // Model Switching
+  // ============================================
+
+  /**
+   * Change the model for an instance while preserving conversation context.
+   * Follows the same pattern as toggleYoloMode: terminate adapter, update state, respawn with resume.
+   */
+  async changeModel(instanceId: string, newModel: string): Promise<Instance> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (instance.status === 'busy') {
+      throw new Error('Cannot change model while instance is busy. Please wait for the current operation to complete.');
+    }
+
+    const oldModel = instance.currentModel || 'default';
+    logger.info('Changing model', {
+      instanceId,
+      oldModel,
+      newModel,
+      adapterExists: !!this.deps.getAdapter(instanceId)
+    });
+
+    // Check if there's a conversation to resume
+    const hasConversation = instance.outputBuffer.some(
+      (msg) => msg.type === 'user' || msg.type === 'assistant'
+    );
+
+    // Terminate existing adapter
+    const oldAdapter = this.deps.getAdapter(instanceId);
+    if (oldAdapter) {
+      this.deps.deleteAdapter(instanceId);
+      await oldAdapter.terminate(true);
+    }
+
+    // Update instance state
+    instance.currentModel = newModel;
+    instance.status = 'initializing';
+
+    // Resolve agent and permissions (same as toggleYoloMode)
+    const agent = getAgentById(instance.agentId) || getDefaultAgent();
+    const disallowedTools = getDisallowedTools(agent.permissions);
+    const allowedTools = instance.yoloMode ? undefined : [
+      'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
+      'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
+      'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
+    ];
+
+    const cliType =
+      instance.provider === 'auto' || instance.provider === 'openai'
+        ? instance.provider === 'openai'
+          ? 'codex'
+          : 'claude'
+        : (instance.provider as CliType);
+
+    const spawnOptions: UnifiedSpawnOptions = {
+      sessionId: instance.sessionId,
+      workingDirectory: instance.workingDirectory,
+      systemPrompt: agent.systemPrompt,
+      model: newModel,
+      yoloMode: instance.yoloMode,
+      allowedTools,
+      disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+      resume: hasConversation
+    };
+
+    const adapter = createCliAdapter(cliType, spawnOptions);
+    this.deps.setupAdapterEvents(instanceId, adapter);
+    this.deps.setAdapter(instanceId, adapter);
+
+    try {
+      const pid = await adapter.spawn();
+      instance.processId = pid;
+      instance.status = 'idle';
+      logger.info('Model changed successfully', { instanceId, pid, newModel });
+
+      // Notify the instance about the model change
+      await adapter.sendInput(
+        `[System: Model changed from ${oldModel} to ${newModel}. Conversation context has been preserved.]`
+      );
+    } catch (error) {
+      instance.status = 'error';
+      logger.error('Failed to change model', error instanceof Error ? error : undefined, { instanceId, newModel });
+      throw error;
+    }
+
+    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+    this.emit('model-changed', {
+      instanceId,
+      model: newModel
+    });
+
     return instance;
   }
 

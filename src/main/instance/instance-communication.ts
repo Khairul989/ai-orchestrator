@@ -28,6 +28,7 @@ export interface CommunicationDependencies {
   queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage) => void;
   processOrchestrationOutput: (instanceId: string, content: string) => void;
   onInterruptedExit: (instanceId: string) => Promise<void>;
+  onChildExit?: (childId: string, instance: Instance, exitCode: number | null) => void;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
   compactContext?: (instanceId: string) => Promise<void>;
@@ -504,6 +505,11 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.deps.queueUpdate(instanceId, instance.status);
 
         this.deps.deleteAdapter(instanceId);
+
+        // Notify parent when a child instance exits
+        if (instance.parentId && this.deps.onChildExit) {
+          this.deps.onChildExit(instanceId, instance, code);
+        }
 
         // Archive crashed/unexpectedly terminated instances to history
         if (!instance.parentId && instance.outputBuffer.length > 0) {

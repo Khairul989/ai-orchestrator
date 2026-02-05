@@ -307,6 +307,11 @@ export class InstanceStore implements OnDestroy {
     return this.listStore.changeAgentMode(instanceId, newAgentId);
   }
 
+  /** Change model for an instance */
+  async changeModel(instanceId: string, newModel: string): Promise<void> {
+    return this.listStore.changeModel(instanceId, newModel);
+  }
+
   /** Clear error state */
   clearError(): void {
     this.stateService.setError(null);

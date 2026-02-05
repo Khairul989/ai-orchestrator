@@ -115,6 +115,14 @@ export class InstanceIpcService {
   }
 
   /**
+   * Change model for an instance (preserves conversation context)
+   */
+  async changeModel(instanceId: string, model: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.changeModel({ instanceId, model });
+  }
+
+  /**
    * Terminate all instances
    */
   async terminateAllInstances(): Promise<IpcResponse> {

@@ -407,6 +407,97 @@ Hello! How can I help?`;
     });
   });
 
+  describe('Header-style false positive prevention', () => {
+    it('should NOT extract short responses starting with bold headers', () => {
+      const content = `**Important Note**
+
+I cannot help with that request.`;
+      const result = extractHeaderStyleThinking(content);
+
+      expect(result.extracted).toHaveLength(0);
+      expect(result.cleaned).toBe(content);
+    });
+
+    it('should NOT extract legitimate markdown section headers', () => {
+      const content = `## Summary
+
+The project uses TypeScript and Angular.`;
+      const result = extractHeaderStyleThinking(content);
+
+      expect(result.extracted).toHaveLength(0);
+      expect(result.cleaned).toBe(content);
+    });
+
+    it('should NOT extract bold-header responses that are short but legitimate', () => {
+      const content = `**NestJS + Fastify + Drizzle**
+
+This is my top recommendation for your stack.`;
+      const result = extractHeaderStyleThinking(content);
+
+      expect(result.extracted).toHaveLength(0);
+      expect(result.cleaned).toBe(content);
+    });
+
+    it('should NOT extract numbered list responses starting with bold header', () => {
+      const content = `**My Suggestions**
+
+1. Use NestJS for the backend
+2. Use Drizzle for the ORM
+3. Deploy with PM2`;
+      const result = extractHeaderStyleThinking(content);
+
+      expect(result.extracted).toHaveLength(0);
+      expect(result.cleaned).toBe(content);
+    });
+
+    it('should still extract actual thinking-indicator headers', () => {
+      const content = `**Analyzing the request**
+
+The user wants help with their backend migration.
+
+Here is my recommendation.`;
+      const result = extractHeaderStyleThinking(content);
+
+      expect(result.extracted).toHaveLength(1);
+      expect(result.extracted[0]).toContain('Analyzing the request');
+      expect(result.cleaned).toContain('Here is my recommendation');
+    });
+
+    it('should still extract processing-style thinking headers', () => {
+      const content = `**Handling user greeting**
+
+User just said hi without a task.
+
+Hi! How can I help?`;
+      const result = extractHeaderStyleThinking(content);
+
+      expect(result.extracted).toHaveLength(1);
+      expect(result.extracted[0]).toContain('Handling user greeting');
+    });
+  });
+
+  describe('Full pipeline false positive prevention', () => {
+    it('should preserve short bold-header responses through full extraction', () => {
+      const content = `**Note**
+
+I cannot help with that.`;
+      const result = extractThinkingContent(content);
+
+      expect(result.response).toContain('I cannot help with that');
+      expect(result.hasThinking).toBe(false);
+    });
+
+    it('should preserve markdown-header responses through full extraction', () => {
+      const content = `## Answer
+
+The answer is 42.`;
+      const result = extractThinkingContent(content);
+
+      expect(result.response).toContain('The answer is 42');
+      expect(result.hasThinking).toBe(false);
+    });
+  });
+
   describe('Real-world scenarios', () => {
     it('should handle Codex-style output', () => {
       const content = `**Handling user greeting**

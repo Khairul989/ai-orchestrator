@@ -4,6 +4,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse, CopilotModelInfo } from './electron-ipc.service';
+import type { ModelDisplayInfo } from '../../../../../shared/types/provider.types';
 
 @Injectable({ providedIn: 'root' })
 export class ProviderIpcService {
@@ -60,6 +61,15 @@ export class ProviderIpcService {
   async listCopilotModels(): Promise<{ success: boolean; data?: CopilotModelInfo[]; error?: { message: string } }> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.listCopilotModels() as Promise<{ success: boolean; data?: CopilotModelInfo[]; error?: { message: string } }>;
+  }
+
+  /**
+   * List available models for any provider
+   * Dynamically queries CLI when supported (Copilot), falls back to static lists
+   */
+  async listModelsForProvider(provider: string): Promise<{ success: boolean; data?: ModelDisplayInfo[]; error?: { message: string } }> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.listModelsForProvider(provider) as Promise<{ success: boolean; data?: ModelDisplayInfo[]; error?: { message: string } }>;
   }
 
   // ============================================

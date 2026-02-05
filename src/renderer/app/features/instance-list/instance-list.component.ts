@@ -91,7 +91,6 @@ export interface HierarchicalInstance {
               (terminate)="onTerminateInstance($event)"
               (restart)="onRestartInstance($event)"
               (toggleExpand)="onToggleExpand($event)"
-              (rename)="onRenameInstance($event)"
             />
           </div>
         } @empty {
@@ -486,10 +485,6 @@ export class InstanceListComponent {
       }
       return newSet;
     });
-  }
-
-  onRenameInstance(event: { id: string; newName: string }): void {
-    this.store.renameInstance(event.id, event.newName);
   }
 
   trackInstance(index: number, item: HierarchicalInstance): string {

@@ -16,6 +16,8 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
 import type { Instance } from '../../core/state/instance.store';
+import { getModelShortName } from '../../../../shared/types/provider.types';
+import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 
 @Component({
   selector: 'app-instance-header',
@@ -59,26 +61,31 @@ import type { Instance } from '../../core/state/instance.store';
           >
             {{ providerDisplayName() }}
           </span>
-          @if (instance().provider === 'copilot') {
+          @if (availableModels().length > 0) {
             <div class="model-selector-inline">
               <button
                 class="model-btn"
+                [style.border-color]="modelBtnBorderColor()"
+                [style.background]="modelBtnBgColor()"
+                [style.color]="providerColor()"
+                [disabled]="instance().status === 'busy' || instance().status === 'respawning'"
                 (click)="$event.stopPropagation(); toggleModelDropdown.emit()"
-                [title]="'Model: ' + selectedCopilotModel()"
+                [title]="'Model: ' + currentModelId()"
               >
-                {{ getModelDisplayName(selectedCopilotModel()) }}
+                {{ currentModelDisplayName() }}
                 <span class="dropdown-caret">▼</span>
               </button>
               @if (showModelDropdown()) {
                 <div class="model-dropdown">
-                  @for (model of copilotModels(); track model.id) {
+                  @for (model of availableModels(); track model.id) {
                     <button
                       class="model-option"
-                      [class.selected]="model.id === selectedCopilotModel()"
-                      (click)="selectCopilotModel.emit(model.id)"
+                      [class.selected]="model.id === currentModelId()"
+                      (click)="selectModel.emit(model.id)"
                     >
-                      {{ model.name }}
-                      @if (model.id === selectedCopilotModel()) {
+                      <span class="model-name">{{ model.name }}</span>
+                      <span class="model-tier" [class]="'tier-' + model.tier">{{ model.tier }}</span>
+                      @if (model.id === currentModelId()) {
                         <span class="check">✓</span>
                       }
                     </button>
@@ -310,7 +317,7 @@ import type { Instance } from '../../core/state/instance.store';
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       }
 
-      /* Inline Model Selector for Copilot */
+      /* Inline Model Selector */
       .model-selector-inline {
         position: relative;
         display: inline-block;
@@ -319,14 +326,12 @@ import type { Instance } from '../../core/state/instance.store';
 
       .model-btn {
         padding: 4px 10px;
-        border: 1px solid rgba(168, 85, 247, 0.3);
+        border: 1px solid;
         border-radius: 12px;
         font-family: var(--font-mono);
         font-size: 10px;
         font-weight: 600;
         letter-spacing: 0.02em;
-        background: rgba(168, 85, 247, 0.15);
-        color: #a855f7;
         cursor: pointer;
         transition: all var(--transition-fast);
         display: flex;
@@ -334,9 +339,13 @@ import type { Instance } from '../../core/state/instance.store';
         gap: 4px;
       }
 
-      .model-btn:hover {
-        background: rgba(168, 85, 247, 0.25);
-        border-color: rgba(168, 85, 247, 0.5);
+      .model-btn:hover:not(:disabled) {
+        filter: brightness(1.2);
+      }
+
+      .model-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
 
       .dropdown-caret {
@@ -380,13 +389,39 @@ import type { Instance } from '../../core/state/instance.store';
       }
 
       .model-option.selected {
-        background: rgba(168, 85, 247, 0.1);
-        color: #a855f7;
+        background: var(--bg-tertiary);
+        color: var(--primary-color);
       }
 
       .model-option .check {
-        color: #a855f7;
+        color: var(--primary-color);
         font-size: 12px;
+      }
+
+      .model-name {
+        flex: 1;
+      }
+
+      .model-tier {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 1px 5px;
+        border-radius: 4px;
+        margin-right: 6px;
+        opacity: 0.7;
+      }
+
+      .tier-powerful {
+        color: #f59e0b;
+      }
+
+      .tier-balanced {
+        color: #10b981;
+      }
+
+      .tier-fast {
+        color: #60a5fa;
       }
 
       .model-backdrop {
@@ -609,8 +644,8 @@ export class InstanceHeaderComponent implements OnInit {
   isChangingMode = input(false);
   isTogglingYolo = input(false);
   showModelDropdown = input(false);
-  selectedCopilotModel = input('claude-sonnet-4-5');
-  copilotModels = input<{ id: string; name: string }[]>([]);
+  currentModel = input<string | undefined>(undefined);
+  models = input<ModelDisplayInfo[]>([]);
 
   // Skills and hooks counts
   activeSkillCount = computed(() => this.skillStore.activeSkillCount());
@@ -648,7 +683,7 @@ export class InstanceHeaderComponent implements OnInit {
   createChild = output<void>();
   toggleModelDropdown = output<void>();
   closeModelDropdown = output<void>();
-  selectCopilotModel = output<string>();
+  selectModel = output<string>();
 
   providerDisplayName = computed(() => {
     return this.getProviderDisplayName(this.instance().provider);
@@ -656,6 +691,35 @@ export class InstanceHeaderComponent implements OnInit {
 
   providerColor = computed(() => {
     return this.getProviderColor(this.instance().provider);
+  });
+
+  availableModels = computed((): ModelDisplayInfo[] => {
+    return this.models();
+  });
+
+  currentModelId = computed(() => {
+    return this.currentModel() || this.availableModels()[0]?.id || '';
+  });
+
+  currentModelDisplayName = computed(() => {
+    const modelId = this.currentModelId();
+    // First try dynamic models list
+    const models = this.availableModels();
+    const match = models.find(m => m.id === modelId);
+    if (match) return match.name;
+    // Fall back to static lookup
+    const provider = this.instance().provider;
+    return getModelShortName(modelId, provider);
+  });
+
+  modelBtnBorderColor = computed(() => {
+    const color = this.getProviderColor(this.instance().provider);
+    return color + '4D'; // 30% opacity hex
+  });
+
+  modelBtnBgColor = computed(() => {
+    const color = this.getProviderColor(this.instance().provider);
+    return color + '26'; // 15% opacity hex
   });
 
   agentModeIcon = computed(() => {
@@ -720,11 +784,6 @@ export class InstanceHeaderComponent implements OnInit {
       default:
         return 'Build';
     }
-  }
-
-  getModelDisplayName(modelId: string): string {
-    const model = this.copilotModels().find((m) => m.id === modelId);
-    return model?.name || modelId;
   }
 
   onSaveName(event: Event): void {

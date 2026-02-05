@@ -42,7 +42,7 @@ const DEFAULT_PREFERENCES: Record<string, AgentPreference> = {
   },
   gemini: {
     command: 'gemini',
-    defaultModel: 'gemini-2.0-flash',
+    defaultModel: 'gemini-3-flash',
     defaultTimeout: 300,
     autoApprove: false,
     personality: 'creative-solver',

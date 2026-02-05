@@ -36,6 +36,39 @@ export class TaskManager {
   /** Max completed tasks to keep in history */
   private maxHistorySize = 100;
 
+  /** Periodic timeout checker interval */
+  private timeoutInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Callback for when tasks time out */
+  private onTimeout?: (timedOut: TaskExecution[]) => void;
+
+  /**
+   * Start periodic timeout checking
+   */
+  startTimeoutChecker(
+    intervalMs = 15000,
+    onTimeout?: (timedOut: TaskExecution[]) => void
+  ): void {
+    this.onTimeout = onTimeout;
+    if (this.timeoutInterval) return;
+    this.timeoutInterval = setInterval(() => {
+      const timedOut = this.checkTimeouts();
+      if (timedOut.length > 0 && this.onTimeout) {
+        this.onTimeout(timedOut);
+      }
+    }, intervalMs);
+  }
+
+  /**
+   * Stop periodic timeout checking
+   */
+  stopTimeoutChecker(): void {
+    if (this.timeoutInterval) {
+      clearInterval(this.timeoutInterval);
+      this.timeoutInterval = null;
+    }
+  }
+
   /**
    * Create and register a new task
    */

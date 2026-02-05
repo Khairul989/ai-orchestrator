@@ -158,8 +158,8 @@ export const OPENAI_MODELS = {
  * Google model identifiers
  */
 export const GOOGLE_MODELS = {
-  GEMINI_PRO: 'gemini-1.5-pro',
-  GEMINI_FLASH: 'gemini-1.5-flash',
+  GEMINI_3_PRO: 'gemini-3-pro',
+  GEMINI_3_FLASH: 'gemini-3-flash',
 } as const;
 
 /**
@@ -193,7 +193,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'openai': OPENAI_MODELS.GPT4O,
   'openai-compatible': OPENAI_MODELS.GPT4O,
   'ollama': 'llama3',
-  'google': GOOGLE_MODELS.GEMINI_PRO,
+  'google': GOOGLE_MODELS.GEMINI_3_PRO,
   'amazon-bedrock': 'anthropic.claude-3-5-sonnet-20241022-v2:0',
   'azure': OPENAI_MODELS.GPT4O,
 };
@@ -216,7 +216,72 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [OPENAI_MODELS.GPT4O]: { input: 2.5, output: 10.0 },
   [OPENAI_MODELS.GPT4O_MINI]: { input: 0.15, output: 0.6 },
   [OPENAI_MODELS.GPT4_TURBO]: { input: 10.0, output: 30.0 },
-  // Google models
-  [GOOGLE_MODELS.GEMINI_PRO]: { input: 1.25, output: 5.0 },
-  [GOOGLE_MODELS.GEMINI_FLASH]: { input: 0.075, output: 0.3 },
+  // Google models (Gemini 3 generation)
+  [GOOGLE_MODELS.GEMINI_3_PRO]: { input: 1.25, output: 10.0 },
+  [GOOGLE_MODELS.GEMINI_3_FLASH]: { input: 0.15, output: 0.60 },
 };
+
+/**
+ * Display info for model dropdown menus
+ */
+export interface ModelDisplayInfo {
+  id: string;
+  name: string;
+  tier: 'fast' | 'balanced' | 'powerful';
+}
+
+/**
+ * Default/fallback models per CLI provider (for dropdown display).
+ * Used when the provider does not support dynamic model listing.
+ * Copilot dynamically fetches models via SDK; others use these static lists.
+ * Keys match InstanceProvider from instance.types.ts.
+ */
+export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
+  claude: [
+    { id: CLAUDE_MODELS.OPUS, name: 'Opus 4.5', tier: 'powerful' },
+    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet 4.5', tier: 'balanced' },
+    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku 4.5', tier: 'fast' },
+  ],
+  codex: [
+    { id: OPENAI_MODELS.GPT4O, name: 'GPT-4o', tier: 'powerful' },
+    { id: OPENAI_MODELS.GPT4O_MINI, name: 'GPT-4o Mini', tier: 'fast' },
+    { id: OPENAI_MODELS.GPT4_TURBO, name: 'GPT-4 Turbo', tier: 'balanced' },
+  ],
+  gemini: [
+    { id: GOOGLE_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro', tier: 'powerful' },
+    { id: GOOGLE_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash', tier: 'fast' },
+  ],
+  copilot: [
+    { id: COPILOT_MODELS.CLAUDE_OPUS_45, name: 'Claude Opus 4.5', tier: 'powerful' },
+    { id: COPILOT_MODELS.O3, name: 'OpenAI o3', tier: 'powerful' },
+    { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro', tier: 'powerful' },
+    { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
+    { id: COPILOT_MODELS.GPT4O, name: 'GPT-4o', tier: 'balanced' },
+    { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash', tier: 'fast' },
+    { id: COPILOT_MODELS.GEMINI_20_FLASH, name: 'Gemini 2.0 Flash', tier: 'fast' },
+    { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast' },
+    { id: COPILOT_MODELS.GPT4O_MINI, name: 'GPT-4o Mini', tier: 'fast' },
+    { id: COPILOT_MODELS.GEMINI_20_FLASH_LITE, name: 'Gemini 2.0 Flash Lite', tier: 'fast' },
+  ],
+  ollama: [],
+};
+
+/**
+ * Get available models for a given CLI provider.
+ */
+export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
+  return PROVIDER_MODEL_LIST[provider] ?? [];
+}
+
+/**
+ * Get short display name for a model ID (for badges).
+ */
+export function getModelShortName(modelId: string, provider: string): string {
+  const models = PROVIDER_MODEL_LIST[provider];
+  if (models) {
+    const match = models.find(m => m.id === modelId);
+    if (match) return match.name;
+  }
+  return modelId.replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/-/g, ' ');
+}

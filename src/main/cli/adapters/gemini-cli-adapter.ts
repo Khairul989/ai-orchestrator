@@ -32,7 +32,7 @@ const logger = getLogger('GeminiCliAdapter');
  * Gemini CLI specific configuration
  */
 export interface GeminiCliConfig {
-  /** Model to use (gemini-2.0-flash, gemini-1.5-pro, etc.) */
+  /** Model to use (gemini-3-pro, gemini-3-flash, etc.) */
   model?: string;
   /** Run in sandbox mode */
   sandbox?: boolean;
@@ -160,6 +160,12 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       const args = this.buildArgs(message);
       this.process = this.spawnProcess(args);
 
+      // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
+      this.process.on('error', (err) => {
+        this.process = null;
+        reject(new Error(`Failed to spawn gemini CLI: ${err.message}`));
+      });
+
       // Gemini uses positional prompt, close stdin
       if (this.process.stdin) {
         this.process.stdin.end();
@@ -235,7 +241,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           errorStr.includes('Error') ||
           errorStr.includes('fatal')
         ) {
-          this.emit('error', errorStr);
+          this.emit('error', new Error(errorStr.trim()));
         }
       });
 
@@ -501,8 +507,14 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       throw new Error('Adapter already spawned');
     }
 
+    // Validate the Gemini CLI is available before claiming "spawned"
+    const status = await this.checkStatus();
+    if (!status.available) {
+      throw new Error(`Gemini CLI not available: ${status.error || 'gemini command not found'}`);
+    }
+
     this.isSpawned = true;
-    // Generate a fake PID to maintain API compatibility
+    // Use a stable fake PID (Gemini runs exec-per-message, no persistent process)
     const fakePid = Math.floor(Math.random() * 100000) + 10000;
     this.emit('spawned', fakePid);
     this.emit('status', 'idle' as InstanceStatus);
@@ -589,9 +601,15 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   /**
    * Override terminate to clean up spawned state
    */
-  override async terminate(graceful: boolean = true): Promise<void> {
+  override async terminate(graceful = true): Promise<void> {
+    const wasSpawned = this.isSpawned;
     await super.terminate(graceful);
     this.isSpawned = false;
     this.totalTokensUsed = 0;
+    // Emit exit event for cleanup (archive, adapter removal, etc.)
+    // Only emit if we were actually spawned to avoid spurious events
+    if (wasSpawned) {
+      this.emit('exit', 0, null);
+    }
   }
 }

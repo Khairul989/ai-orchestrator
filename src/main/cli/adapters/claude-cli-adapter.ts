@@ -726,7 +726,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           timestamp: message.timestamp || Date.now()
         })));
 
-        if (assistantContent.trim()) {
+        if (assistantContent.trim() || thinkingBlocks.length > 0) {
           this.emit('output', {
             id: generateId(),
             timestamp: message.timestamp || Date.now(),

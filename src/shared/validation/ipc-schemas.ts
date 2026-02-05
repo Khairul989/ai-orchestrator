@@ -82,6 +82,13 @@ export const InstanceChangeAgentPayloadSchema = z.object({
 
 export type InstanceChangeAgentPayload = z.infer<typeof InstanceChangeAgentPayloadSchema>;
 
+export const InstanceChangeModelPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  model: z.string().min(1).max(100),
+});
+
+export type InstanceChangeModelPayload = z.infer<typeof InstanceChangeModelPayloadSchema>;
+
 // ============ Input Required Response ============
 
 export const InputRequiredResponsePayloadSchema = z.object({

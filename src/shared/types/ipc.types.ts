@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_CHANGE_AGENT_MODE: 'instance:change-agent-mode',
   INSTANCE_TOGGLE_YOLO_MODE: 'instance:toggle-yolo-mode',
+  INSTANCE_CHANGE_MODEL: 'instance:change-model',
   INSTANCE_SEND_INPUT: 'instance:send-input',
   INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
@@ -63,6 +64,9 @@ export const IPC_CHANNELS = {
 
   // Copilot operations
   COPILOT_LIST_MODELS: 'copilot:list-models',
+
+  // Provider model listing (generic)
+  PROVIDER_LIST_MODELS: 'provider:list-models',
 
   // Dialog operations
   DIALOG_SELECT_FOLDER: 'dialog:select-folder',

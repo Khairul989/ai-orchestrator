@@ -158,6 +158,7 @@ export interface Instance {
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
   provider: InstanceProvider; // Which CLI provider is being used
+  currentModel?: string; // Current model override (e.g., 'claude-sonnet-4-5-20250929')
 
   // Output
   outputBuffer: OutputMessage[];

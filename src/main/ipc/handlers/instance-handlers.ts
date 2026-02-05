@@ -19,6 +19,7 @@ import {
   InstanceTerminatePayloadSchema,
   InstanceRenamePayloadSchema,
   InstanceChangeAgentPayloadSchema,
+  InstanceChangeModelPayloadSchema,
   InputRequiredResponsePayloadSchema,
   UserActionResponsePayloadSchema,
   validateIpcPayload
@@ -377,6 +378,42 @@ export function registerInstanceHandlers(deps: {
           success: false,
           error: {
             code: 'TOGGLE_YOLO_MODE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Change model (preserves conversation context)
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_CHANGE_MODEL,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: { instanceId: string; model: string }
+    ): Promise<IpcResponse> => {
+      try {
+        const validatedPayload = validateIpcPayload(
+          InstanceChangeModelPayloadSchema,
+          payload,
+          'INSTANCE_CHANGE_MODEL'
+        );
+
+        const instance = await instanceManager.changeModel(
+          validatedPayload.instanceId,
+          validatedPayload.model
+        );
+
+        return {
+          success: true,
+          data: instanceManager.serializeForIpc(instance)
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CHANGE_MODEL_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

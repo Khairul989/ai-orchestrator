@@ -10,6 +10,8 @@ import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchest
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
 import type { WindowManager } from '../window-manager';
 import { CopilotSdkAdapter, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from '../cli/adapters/copilot-sdk-adapter';
+import { PROVIDER_MODEL_LIST } from '../../shared/types/provider.types';
+import type { ModelDisplayInfo } from '../../shared/types/provider.types';
 
 // ============================================
 // Types
@@ -203,6 +205,70 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
         return {
           success: true,
           data: COPILOT_DEFAULT_MODELS,
+        };
+      }
+    }
+  );
+
+  // ============================================
+  // Generic Provider Model Listing
+  // ============================================
+
+  // List available models for any provider
+  // Dynamically queries CLI when supported (Copilot), falls back to static lists
+  ipcMain.handle(
+    'provider:list-models',
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: { provider: string }
+    ): Promise<IpcResponse<ModelDisplayInfo[]>> => {
+      try {
+        const provider = payload?.provider;
+        if (!provider) {
+          return {
+            success: false,
+            error: {
+              code: 'INVALID_PROVIDER',
+              message: 'Provider parameter is required',
+              timestamp: Date.now(),
+            },
+          };
+        }
+
+        console.log(`[CLI-Verification-IPC] Listing models for provider: ${provider}`);
+
+        // Copilot: dynamic listing via SDK
+        if (provider === 'copilot') {
+          try {
+            const adapter = new CopilotSdkAdapter();
+            const copilotModels = await adapter.listAvailableModels();
+            const models: ModelDisplayInfo[] = copilotModels
+              .filter(m => m.enabled !== false)
+              .map(m => ({
+                id: m.id,
+                name: m.name,
+                tier: classifyCopilotModelTier(m.id),
+              }));
+            console.log(`[CLI-Verification-IPC] Fetched ${models.length} Copilot models dynamically`);
+            return { success: true, data: models };
+          } catch {
+            // Fall through to static list
+            console.warn('[CLI-Verification-IPC] Dynamic Copilot model fetch failed, using static list');
+          }
+        }
+
+        // All other providers (and Copilot fallback): use static lists
+        const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
+        console.log(`[CLI-Verification-IPC] Returning ${staticModels.length} static models for ${provider}`);
+        return { success: true, data: staticModels };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'LIST_MODELS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
         };
       }
     }
@@ -462,4 +528,26 @@ function setupCoordinatorEvents(
   coordinator.on('warning', (data) => {
     sendToRenderer('verification:warning', data);
   });
+}
+
+// ============================================
+// Helpers
+// ============================================
+
+/**
+ * Classify a Copilot model ID into a tier for display.
+ * Based on model naming conventions from the Copilot SDK.
+ */
+function classifyCopilotModelTier(modelId: string): 'fast' | 'balanced' | 'powerful' {
+  const id = modelId.toLowerCase();
+  // Fast tier: mini, lite, haiku, flash variants
+  if (id.includes('mini') || id.includes('lite') || id.includes('haiku') || id.includes('flash')) {
+    return 'fast';
+  }
+  // Powerful tier: opus, o3, o1, pro variants
+  if (id.includes('opus') || id === 'o3' || id === 'o1' || id.includes('-pro')) {
+    return 'powerful';
+  }
+  // Everything else: balanced
+  return 'balanced';
 }

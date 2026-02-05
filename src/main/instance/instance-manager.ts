@@ -13,6 +13,8 @@
 import { EventEmitter } from 'events';
 import { generateChildPrompt } from '../orchestration/orchestration-protocol';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getTaskManager } from '../orchestration/task-manager';
+import { getChildResultStorage } from '../orchestration/child-result-storage';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
 import type {
@@ -70,6 +72,9 @@ export class InstanceManager extends EventEmitter {
         if (instance) {
           await this.context.compactContext(id, instance);
         }
+      },
+      onChildExit: (childId, child, exitCode) => {
+        this.handleChildExit(childId, child, exitCode);
       }
     });
 
@@ -128,6 +133,18 @@ export class InstanceManager extends EventEmitter {
       (event, payload) => this.emit(event, payload)
     );
 
+    // Start periodic task timeout checking
+    getTaskManager().startTimeoutChecker(15000, (timedOut) => {
+      for (const task of timedOut) {
+        console.warn(`[TaskManager] Task ${task.taskId} timed out (child: ${task.childId})`);
+        const orchestration = this.orchestrationMgr.getOrchestrationHandler();
+        orchestration.notifyError(
+          task.parentId,
+          `Child task "${task.task}" timed out after ${Math.round((task.timeout || 0) / 1000)}s`
+        );
+      }
+    });
+
     // Listen for settings changes
     this.settings.on('setting-changed', () => {
       const newSettings = this.settings.getAll();
@@ -165,6 +182,7 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('output', (payload) => this.emit('instance:output', payload));
     this.lifecycle.on('agent-changed', (payload) => this.emit('instance:agent-changed', payload));
     this.lifecycle.on('yolo-toggled', (payload) => this.emit('instance:yolo-toggled', payload));
+    this.lifecycle.on('model-changed', (payload) => this.emit('instance:model-changed', payload));
     this.lifecycle.on('state-update', (payload) => this.emit('instance:state-update', payload));
     this.lifecycle.on('memory:warning', (stats) => this.emit('memory:warning', stats));
     this.lifecycle.on('memory:critical', (stats) => this.emit('memory:critical', stats));
@@ -225,6 +243,10 @@ export class InstanceManager extends EventEmitter {
 
   async toggleYoloMode(instanceId: string): Promise<Instance> {
     return this.lifecycle.toggleYoloMode(instanceId);
+  }
+
+  async changeModel(instanceId: string, newModel: string): Promise<Instance> {
+    return this.lifecycle.changeModel(instanceId, newModel);
   }
 
   interruptInstance(instanceId: string): boolean {
@@ -458,10 +480,61 @@ export class InstanceManager extends EventEmitter {
   }
 
   // ============================================
+  // Child Exit Handling
+  // ============================================
+
+  /**
+   * Handle a child instance exiting - notify parent, capture results, clean up tasks.
+   * This fixes the issue where children could exit without the parent ever knowing.
+   */
+  private handleChildExit(childId: string, child: Instance, exitCode: number | null): void {
+    if (!child.parentId) return;
+
+    const orchestration = this.orchestrationMgr.getOrchestrationHandler();
+    const taskManager = getTaskManager();
+    const storage = getChildResultStorage();
+
+    // 1. Auto-capture result from output buffer if child didn't report one itself
+    if (!storage.hasResult(childId) && child.outputBuffer.length > 0) {
+      const task = taskManager.getTaskByChildId(childId);
+      const lastAssistant = [...child.outputBuffer]
+        .reverse()
+        .find(m => m.type === 'assistant');
+      const summary = lastAssistant
+        ? lastAssistant.content.substring(0, 500)
+        : 'Child exited without reporting a result.';
+      const success = exitCode === 0;
+
+      storage.storeFromOutputBuffer(
+        childId,
+        child.parentId,
+        task?.task || child.displayName,
+        summary,
+        success,
+        child.outputBuffer,
+        child.createdAt
+      ).catch(err => {
+        console.error(`[ChildExit] Failed to auto-capture result for ${childId}:`, err);
+      });
+    }
+
+    // 2. Clean up tasks in TaskManager
+    taskManager.cleanupChildTasks(childId);
+
+    // 3. Notify the parent that this child has exited
+    orchestration.notifyChildTerminated(child.parentId, childId);
+
+    console.log(
+      `[ChildExit] Child ${childId} exited (code=${exitCode}), parent ${child.parentId} notified, task cleaned up`
+    );
+  }
+
+  // ============================================
   // Cleanup
   // ============================================
 
   destroy(): void {
+    getTaskManager().stopTimeoutChecker();
     this.state.destroy();
     this.lifecycle.destroy();
     this.terminateAll();

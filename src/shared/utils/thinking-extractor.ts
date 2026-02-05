@@ -216,12 +216,12 @@ export function extractHeaderStyleThinking(content: string): {
             headerLower.startsWith('next')
         );
 
-        // Also check if the body looks like reasoning (short, reflective)
-        const bodyLines = body.trim().split('\n').filter(Boolean);
-        const isShortReasoning =
-          bodyLines.length <= 5 && body.length < 500;
-
-        if (isThinkingHeader || isShortReasoning) {
+        // Only extract if the header is a known thinking indicator.
+        // Previously this used OR with isShortReasoning, which caused
+        // legitimate short responses starting with bold/hash headers
+        // (e.g. "**Note**\n\nI cannot help with that.") to be silently
+        // consumed as "thinking" — making messages disappear from the UI.
+        if (isThinkingHeader) {
           extracted.push(`${header}\n\n${body.trim()}`);
           return '';
         }

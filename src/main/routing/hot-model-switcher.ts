@@ -174,8 +174,8 @@ const MODEL_HINTS: Record<string, string> = {
   'o1': 'Take time to reason through complex problems step by step.',
 
   // Gemini models
-  'gemini-2.0-flash': '',
-  'gemini-1.5-pro': '',
+  'gemini-3-pro': '',
+  'gemini-3-flash': '',
 
   // Default fallback
   default: '',

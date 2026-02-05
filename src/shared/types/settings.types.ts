@@ -165,8 +165,8 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'gpt-4o', label: 'GPT-4o' },
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
       { value: 'o3', label: 'OpenAI o3' },
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' }
+      { value: 'gemini-3-pro', label: 'Gemini 3 Pro' },
+      { value: 'gemini-3-flash', label: 'Gemini 3 Flash' }
     ]
   },
   {

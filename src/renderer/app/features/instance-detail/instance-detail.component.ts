@@ -14,8 +14,11 @@ import {
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ElectronIpcService, RecentDirectoriesIpcService } from '../../core/services/ipc';
+import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { DraftService } from '../../core/services/draft.service';
 import { ProviderStateService } from '../../core/services/provider-state.service';
+import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { PROVIDER_MODEL_LIST } from '../../../../shared/types/provider.types';
 import { OutputStreamComponent } from './output-stream.component';
 import { ContextBarComponent } from './context-bar.component';
 import { InputPanelComponent } from './input-panel.component';
@@ -59,8 +62,8 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
             [isChangingMode]="isChangingMode()"
             [isTogglingYolo]="isTogglingYolo()"
             [showModelDropdown]="showModelDropdown()"
-            [selectedCopilotModel]="selectedCopilotModel()"
-            [copilotModels]="copilotModels()"
+            [currentModel]="inst.currentModel"
+            [models]="availableModels()"
             (startEditName)="onStartEditName()"
             (cancelEditName)="onCancelEditName()"
             (saveName)="onSaveName($event)"
@@ -73,7 +76,7 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
             (createChild)="onCreateChild()"
             (toggleModelDropdown)="toggleModelDropdown()"
             (closeModelDropdown)="showModelDropdown.set(false)"
-            (selectCopilotModel)="onSelectCopilotModel($event)"
+            (selectModel)="onChangeModel($event)"
           />
 
           <!-- Context bar -->
@@ -283,6 +286,7 @@ export class InstanceDetailComponent {
   private recentDirsService = inject(RecentDirectoriesIpcService);
   private draftService = inject(DraftService);
   private providerState = inject(ProviderStateService);
+  private providerIpc = inject(ProviderIpcService);
 
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
@@ -297,19 +301,20 @@ export class InstanceDetailComponent {
   isChangingMode = signal(false);
   isTogglingYolo = signal(false);
   showModelDropdown = signal(false);
-  selectedCopilotModel = signal<string>('claude-sonnet-4-5');
-  copilotModels = signal<{ id: string; name: string }[]>([
-    { id: 'claude-opus-4-5', name: 'Claude Opus 4.5' },
-    { id: 'o3', name: 'OpenAI o3' },
-    { id: 'gemini-3-pro', name: 'Gemini 3 Pro' },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-    { id: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'gemini-3-flash', name: 'Gemini 3 Flash' },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' }
-  ]);
+  availableModels = signal<ModelDisplayInfo[]>([]);
+
+  // Track the provider we've fetched models for to avoid redundant fetches
+  private lastFetchedProvider: string | null = null;
+
+  // Effect: fetch models dynamically when provider changes
+  private modelsFetchEffect = effect(() => {
+    const inst = this.instance();
+    if (!inst) return;
+    const provider = inst.provider;
+    if (provider === this.lastFetchedProvider) return;
+    this.lastFetchedProvider = provider;
+    this.fetchModelsForProvider(provider);
+  });
 
   pendingFiles = computed(() => {
     const inst = this.instance();
@@ -426,10 +431,31 @@ export class InstanceDetailComponent {
     this.showModelDropdown.update((v) => !v);
   }
 
-  onSelectCopilotModel(modelId: string): void {
-    this.selectedCopilotModel.set(modelId);
+  async onChangeModel(modelId: string): Promise<void> {
     this.showModelDropdown.set(false);
-    console.log(`[InstanceDetail] Selected Copilot model: ${modelId}`);
+    const inst = this.instance();
+    if (!inst) return;
+    await this.store.changeModel(inst.id, modelId);
+  }
+
+  /**
+   * Fetch available models for a provider.
+   * Dynamically queries the CLI when supported (Copilot), falls back to static lists.
+   */
+  private async fetchModelsForProvider(provider: string): Promise<void> {
+    // Immediately set static fallback for instant display
+    const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
+    this.availableModels.set(staticModels);
+
+    // Then try dynamic fetch (may return same static list for non-dynamic providers)
+    try {
+      const response = await this.providerIpc.listModelsForProvider(provider);
+      if (response.success && response.data && response.data.length > 0) {
+        this.availableModels.set(response.data);
+      }
+    } catch {
+      // Static fallback already set above
+    }
   }
 
   onSendMessage(message: string): void {

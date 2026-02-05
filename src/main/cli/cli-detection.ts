@@ -340,7 +340,10 @@ export class CliDetectionService {
         capabilities: config.capabilities
       };
 
-      if (command !== config.command) {
+      // Allow alternative paths (absolute paths starting with / or expanded ~)
+      // The guard only rejects if someone passes a different command name
+      const isAbsolutePath = command.startsWith('/');
+      if (!isAbsolutePath && command !== config.command) {
         result.error = 'Invalid CLI command';
         resolve(result);
         return;

@@ -58,6 +58,7 @@ export interface Instance {
   sessionId: string;
   workingDirectory: string;
   yoloMode: boolean;
+  currentModel?: string; // Current model being used
   outputBuffer: OutputMessage[];
 }
 

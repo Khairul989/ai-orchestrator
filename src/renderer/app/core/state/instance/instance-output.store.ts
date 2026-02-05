@@ -24,6 +24,10 @@ export class InstanceOutputStore {
   queueOutput(instanceId: string, message: OutputMessage): void {
     // Filter out empty messages (defense-in-depth)
     if (!this.hasContent(message)) {
+      console.warn(
+        `[InstanceOutputStore] Dropped empty ${message.type} message for instance ${instanceId}`,
+        { id: message.id, contentLength: message.content?.length ?? 0 }
+      );
       return;
     }
 

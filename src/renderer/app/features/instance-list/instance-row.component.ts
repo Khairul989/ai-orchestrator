@@ -7,7 +7,6 @@ import {
   input,
   output,
   computed,
-  signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { Instance } from '../../core/state/instance.store';
@@ -71,24 +70,7 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
               [title]="providerDisplayName()"
             ></span>
           </div>
-          @if (isEditingName()) {
-            <input
-              type="text"
-              class="name-input"
-              [value]="instance().displayName"
-              (keydown.enter)="onSaveName($event)"
-              (keydown.escape)="onCancelEditName($event)"
-              (blur)="onSaveName($event)"
-              (click)="$event.stopPropagation()"
-              #nameInput
-            />
-          } @else {
-            <span
-              class="instance-name"
-              (dblclick)="onStartEditName($event)"
-              [title]="isSelected() ? 'Double-click to rename' : 'Click to select, then double-click to rename'"
-            >{{ instance().displayName }}</span>
-          }
+          <span class="instance-name">{{ instance().displayName }}</span>
           @if (hasChildren() && !isExpanded()) {
             <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
           }
@@ -311,31 +293,6 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       flex: 1;
       min-width: 0;
       letter-spacing: -0.01em;
-      cursor: text;
-      padding: 2px 4px;
-      border-radius: var(--radius-sm);
-      transition: background var(--transition-fast);
-
-      &:hover {
-        background: var(--bg-hover);
-      }
-    }
-
-    .name-input {
-      font-family: var(--font-display);
-      font-weight: 600;
-      font-size: 13px;
-      letter-spacing: -0.01em;
-      padding: 2px 6px;
-      border: 2px solid var(--primary-color);
-      border-radius: var(--radius-sm);
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      outline: none;
-      flex: 1;
-      min-width: 80px;
-      max-width: 200px;
-      box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.15);
     }
 
     .collapsed-badge {
@@ -446,11 +403,6 @@ export class InstanceRowComponent {
   terminate = output<string>();
   restart = output<string>();
   toggleExpand = output<string>();
-  rename = output<{ id: string; newName: string }>();
-
-  // Local edit state
-  isEditingName = signal(false);
-
   // Computed agent profile from instance's agentId
   agent = computed(() => {
     const agentId = this.instance().agentId;
@@ -520,38 +472,4 @@ export class InstanceRowComponent {
     this.toggleExpand.emit(this.instance().id);
   }
 
-  onStartEditName(event: Event): void {
-    event.stopPropagation();
-    // Only allow editing if the row is already selected
-    if (!this.isSelected()) {
-      return;
-    }
-    this.isEditingName.set(true);
-    // Focus input after Angular renders it
-    setTimeout(() => {
-      const input = (event.target as HTMLElement)
-        .closest('.instance-name-row')
-        ?.querySelector('.name-input') as HTMLInputElement;
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    });
-  }
-
-  onSaveName(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const newName = input.value.trim();
-    const inst = this.instance();
-
-    if (newName && newName !== inst.displayName) {
-      this.rename.emit({ id: inst.id, newName });
-    }
-    this.isEditingName.set(false);
-  }
-
-  onCancelEditName(event: Event): void {
-    event.stopPropagation();
-    this.isEditingName.set(false);
-  }
 }

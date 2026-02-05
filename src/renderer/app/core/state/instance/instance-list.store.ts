@@ -264,6 +264,26 @@ export class InstanceListStore {
   }
 
   /**
+   * Change model for an instance
+   */
+  async changeModel(instanceId: string, newModel: string): Promise<void> {
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance || instance.currentModel === newModel) return;
+
+    const response = await this.ipc.changeModel(instanceId, newModel);
+
+    if (response.success && 'data' in response && response.data) {
+      const data = response.data as { currentModel?: string; status?: string };
+      this.stateService.updateInstance(instanceId, {
+        currentModel: data.currentModel || newModel,
+        status: (data.status as InstanceStatus) || 'idle',
+      });
+    } else if ('error' in response) {
+      console.error('Failed to change model:', response.error);
+    }
+  }
+
+  /**
    * Open folder picker and change working directory for an instance
    */
   async selectWorkingDirectory(instanceId: string): Promise<void> {
