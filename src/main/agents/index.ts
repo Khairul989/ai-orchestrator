@@ -26,3 +26,6 @@ export type {
 
 // Specialist profiles
 export * from './specialists/profiles';
+
+// User/project-defined agents (markdown frontmatter)
+export { AgentRegistry, getAgentRegistry } from './agent-registry';

@@ -7,7 +7,7 @@
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import type { ContextStage } from './types.js';
+import type { ContextStage, NeedleDefinition } from './types.js';
 
 /**
  * Approximate tokens per character (rough estimate for English text + code)
@@ -38,13 +38,19 @@ export interface ContextFillResult {
  */
 export function generateContext(
   stage: ContextStage,
-  workingDirectory: string
+  workingDirectory: string,
+  needles?: NeedleDefinition[]
 ): ContextFillResult {
-  if (stage === 'fresh') {
+  if (stage === 'fresh' && !needles?.length) {
     return { messages: [], estimatedTokens: 0 };
   }
 
-  const targetTokens = CONTEXT_TARGETS[stage];
+  // For fresh stage with needles, use a minimal context target
+  // so needles are still planted with some surrounding context
+  const targetTokens = stage === 'fresh'
+    ? (needles?.length ? 5_000 : 0)
+    : CONTEXT_TARGETS[stage];
+
   const messages: ContextMessage[] = [];
   let totalChars = 0;
 
@@ -81,10 +87,78 @@ export function generateContext(
     totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
   }
 
+  // 4. Plant needles at their specified depth positions
+  if (needles?.length) {
+    plantNeedles(messages, needles);
+  }
+
+  // Recalculate after needle insertion
+  totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+
   return {
     messages,
     estimatedTokens: Math.round(totalChars * TOKENS_PER_CHAR),
   };
+}
+
+/**
+ * Plant needles into conversation context at their specified depth positions.
+ * Each needle is wrapped in a realistic conversation exchange matching its wrapper type.
+ */
+function plantNeedles(messages: ContextMessage[], needles: NeedleDefinition[]): void {
+  // Sort needles by depth (deepest first) so insertion indices stay valid
+  const sorted = [...needles].sort((a, b) => b.depthPercent - a.depthPercent);
+
+  for (const needle of sorted) {
+    const needleMessages = wrapNeedle(needle);
+    // Calculate insertion index based on depth percent of current message count
+    const insertIdx = Math.max(
+      2, // Always after the initial overview exchange
+      Math.floor(messages.length * needle.depthPercent)
+    );
+    // Ensure insertion is at an even index (start of user/assistant pair)
+    const alignedIdx = insertIdx % 2 === 0 ? insertIdx : insertIdx - 1;
+    messages.splice(alignedIdx, 0, ...needleMessages);
+  }
+}
+
+/**
+ * Wrap a needle in a realistic conversation exchange based on its wrapper type.
+ */
+function wrapNeedle(needle: NeedleDefinition): ContextMessage[] {
+  const file = needle.contextFile || 'unknown-file.ts';
+
+  switch (needle.wrapper) {
+    case 'file-exploration':
+      return [
+        { role: 'user', content: `Let me look at ${file}. What do you see in there?` },
+        { role: 'assistant', content: `Looking at \`${file}\`:\n\n${needle.content}` },
+      ];
+
+    case 'analysis-discussion':
+      return [
+        { role: 'user', content: `Can you analyze the configuration in ${file}?` },
+        { role: 'assistant', content: `Here's what I found analyzing \`${file}\`:\n\n${needle.content}` },
+      ];
+
+    case 'code-review':
+      return [
+        { role: 'user', content: `Let's review ${file} for any issues.` },
+        { role: 'assistant', content: `Reviewing \`${file}\`:\n\n${needle.content}` },
+      ];
+
+    case 'debug-session':
+      return [
+        { role: 'user', content: `I'm investigating an issue related to ${file}. What can you find?` },
+        { role: 'assistant', content: `Investigating \`${file}\`:\n\n${needle.content}` },
+      ];
+
+    default:
+      return [
+        { role: 'user', content: `What about ${file}?` },
+        { role: 'assistant', content: needle.content },
+      ];
+  }
 }
 
 /**

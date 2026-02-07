@@ -49,6 +49,8 @@ export class InstanceOrchestrationManager {
   private strategyLearner = StrategyLearner.getInstance();
   private unifiedMemory = getUnifiedMemory();
   private deps: OrchestrationDependencies;
+  /** Per-instance write queues to prevent concurrent stdin writes */
+  private writeQueues = new Map<string, Promise<void>>();
 
   constructor(deps: OrchestrationDependencies) {
     this.deps = deps;
@@ -280,10 +282,10 @@ export class InstanceOrchestrationManager {
       }
     );
 
-    // Handle response injection
+    // Handle response injection with serialized writes per instance
     this.orchestration.on(
       'inject-response',
-      async (instanceId: string, response: string) => {
+      (instanceId: string, response: string) => {
         const adapter = this.deps.getAdapter(instanceId);
         const instance = this.deps.getInstance(instanceId);
 
@@ -303,7 +305,7 @@ export class InstanceOrchestrationManager {
             // Ignore parse errors
           }
 
-          let friendlyContent = this.buildFriendlyOrchestrationMessage(action, status, data);
+          const friendlyContent = this.buildFriendlyOrchestrationMessage(action, status, data);
 
           const orchestrationMessage = {
             id: `orch-${Date.now()}`,
@@ -313,12 +315,21 @@ export class InstanceOrchestrationManager {
             metadata: { source: 'orchestration', action, status, rawData: data }
           };
           addToOutputBuffer(instance, orchestrationMessage);
-          emit('output', {
+          emit('instance:output', {
             instanceId,
             message: orchestrationMessage
           });
 
-          await adapter.sendInput(response);
+          // Serialize writes per instance to prevent concurrent stdin corruption
+          const prev = this.writeQueues.get(instanceId) ?? Promise.resolve();
+          const next = prev.then(async () => {
+            try {
+              await adapter.sendInput(response);
+            } catch (err) {
+              console.error(`[Orchestration] Failed to inject response to ${instanceId}:`, err);
+            }
+          });
+          this.writeQueues.set(instanceId, next);
         }
       }
     );
@@ -481,12 +492,11 @@ export class InstanceOrchestrationManager {
 
   resolveChildAgentId(command: SpawnChildCommand): string | undefined {
     if (command.agentId) {
+      // Allow custom agents (e.g. `custom:foo`) to pass through without validation.
+      // Built-in agents are validated for better error messages.
       const resolved = getAgentById(command.agentId);
       if (resolved) return command.agentId;
-      console.warn(
-        `[Orchestration] Unknown agentId "${command.agentId}", using default agent.`
-      );
-      return undefined;
+      return command.agentId;
     }
 
     if (this.isRetrievalTask(command.task)) {
@@ -942,9 +952,29 @@ export class InstanceOrchestrationManager {
         } else {
           return `**No output from child** \`${data.childId}\``;
         }
+      case 'call_tool':
+        if (status === 'SUCCESS') {
+          const toolId = data.toolId || data.tool?.id || 'tool';
+          const outputPreview =
+            data.output !== undefined
+              ? (typeof data.output === 'string'
+                  ? data.output
+                  : JSON.stringify(data.output, null, 2))
+              : '';
+          const trimmed =
+            outputPreview.length > 1500
+              ? outputPreview.slice(0, 1500) + '\n... (truncated)'
+              : outputPreview;
+          return `**Tool ran:** \`${toolId}\`\n\n\`\`\`\n${trimmed}\n\`\`\``;
+        }
+        return `**Tool failed:** \`${data.toolId || data.tool?.id || 'tool'}\`\n\n${data.error || 'Unknown error'}`;
       // New structured result messages
       case 'child_result':
         return this.formatChildResultMessage(data);
+      case 'child_completed':
+        return this.formatChildCompletedMessage(data);
+      case 'all_children_completed':
+        return this.formatAllChildrenCompletedMessage(data);
       case 'get_child_summary':
         return this.formatChildSummaryMessage(status, data);
       case 'get_child_artifacts':
@@ -1056,6 +1086,43 @@ export class InstanceOrchestrationManager {
     parts.push('');
     parts.push(data.content);
 
+    return parts.join('\n');
+  }
+
+  private formatChildCompletedMessage(data: Record<string, unknown>): string {
+    const parts: string[] = [];
+    const name = (data['name'] as string) || (data['childId'] as string) || 'Unknown child';
+    const statusLabel = data['success'] ? 'Success' : 'Failed';
+    parts.push(`**Child Completed:** ${name} (\`${data['childId']}\`)`);
+    parts.push(`**Status:** ${statusLabel}`);
+    if (data['summary']) {
+      parts.push('');
+      parts.push(data['summary'] as string);
+    }
+    const conclusions = data['conclusions'] as string[] | undefined;
+    if (conclusions && conclusions.length > 0) {
+      parts.push('');
+      parts.push('**Conclusions:**');
+      for (const c of conclusions) {
+        parts.push(`- ${c}`);
+      }
+    }
+    return parts.join('\n');
+  }
+
+  private formatAllChildrenCompletedMessage(data: Record<string, unknown>): string {
+    const parts: string[] = [];
+    parts.push(`**All ${data['totalChildren']} children completed**`);
+    parts.push('');
+    const summaries = data['summaries'] as { success: boolean; name: string; summary: string }[] | undefined;
+    if (summaries && summaries.length > 0) {
+      for (const s of summaries) {
+        const statusLabel = s.success ? 'SUCCESS' : 'FAILED';
+        parts.push(`- **[${statusLabel}]** ${s.name}: ${s.summary}`);
+      }
+    }
+    parts.push('');
+    parts.push('_Synthesis prompt injected to parent CLI._');
     return parts.join('\n');
   }
 }

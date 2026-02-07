@@ -12,6 +12,9 @@
 
 import { EventEmitter } from 'events';
 import { generateChildPrompt } from '../orchestration/orchestration-protocol';
+import { parseCommandString, resolveTemplate } from '../../shared/types/command.types';
+import { getCommandManager } from '../commands/command-manager';
+import { getMarkdownCommandRegistry } from '../commands/markdown-command-registry';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
@@ -32,6 +35,8 @@ import { InstanceCommunicationManager } from './instance-communication';
 import { InstanceContextManager } from './instance-context';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
+import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
+import * as path from 'path';
 
 // Singleton instance
 let instanceManager: InstanceManager | null = null;
@@ -48,6 +53,7 @@ export class InstanceManager extends EventEmitter {
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
   private settings = getSettingsManager();
+  private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
 
   constructor() {
     super();
@@ -172,8 +178,7 @@ export class InstanceManager extends EventEmitter {
     this.communication.on('input-required', (payload) => {
       console.log('=== [InstanceManager] INPUT-REQUIRED EVENT RECEIVED ===');
       console.log('[InstanceManager] Payload:', JSON.stringify(payload, null, 2));
-      this.emit('instance:input-required', payload);
-      console.log('[InstanceManager] instance:input-required event emitted');
+      void this.handleInputRequired(payload);
     });
 
     // Lifecycle events
@@ -187,6 +192,129 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('memory:warning', (stats) => this.emit('memory:warning', stats));
     this.lifecycle.on('memory:critical', (stats) => this.emit('memory:critical', stats));
     this.lifecycle.on('memory:stats', (stats) => this.emit('memory:stats', stats));
+  }
+
+  private mapCliPermissionActionToScope(action: string | undefined): PermissionScope {
+    const a = (action || '').toLowerCase();
+    if (a.includes('read')) return 'file_read';
+    if (a.includes('write') || a.includes('edit') || a.includes('create')) return 'file_write';
+    if (a.includes('delete') || a.includes('remove')) return 'file_delete';
+    if (a.includes('list') || a === 'ls') return 'directory_read';
+    return 'tool_use';
+  }
+
+  private normalizeRequestedPath(workingDirectory: string, requested: string | undefined): string {
+    const p = (requested || '').trim();
+    if (!p) return requested || '';
+    if (path.isAbsolute(p)) return p;
+    if (p.startsWith('./') || p.includes('/') || p.includes('\\')) {
+      return path.join(workingDirectory, p);
+    }
+    return p;
+  }
+
+  private async handleInputRequired(payload: {
+    instanceId: string;
+    requestId: string;
+    prompt: string;
+    timestamp: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const instance = this.getInstance(payload.instanceId);
+    const workingDirectory = instance?.workingDirectory || process.cwd();
+
+    // Ensure project permission rules are available for this directory.
+    try {
+      getPermissionManager().loadProjectRules(workingDirectory);
+    } catch {
+      // ignore
+    }
+
+    const meta = payload.metadata || {};
+    const metaType = String((meta as any)['type'] || '');
+
+    // Only gate the known CLI permission denial prompts (Claude CLI emits these for tool_result denial).
+    if (metaType === 'permission_denial') {
+      const action = (meta as any)['action'] as string | undefined;
+      const rawPath = (meta as any)['path'] as string | undefined;
+      const permissionKey = (meta as any)['permissionKey'] as string | undefined;
+
+      const scope = this.mapCliPermissionActionToScope(action);
+      const resource =
+        scope.startsWith('file_') || scope.startsWith('directory_')
+          ? this.normalizeRequestedPath(workingDirectory, rawPath)
+          : `${action || 'access'}:${rawPath || ''}`.trim();
+
+      const request: PermissionRequest = {
+        id: `perm-cli-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        instanceId: payload.instanceId,
+        scope,
+        resource,
+        context: {
+          toolName: 'claude-cli',
+          workingDirectory,
+          isChildInstance: Boolean((instance as any)?.parentId),
+          depth: (instance as any)?.depth ?? 0,
+          yoloMode: Boolean((instance as any)?.yoloMode),
+        },
+        timestamp: Date.now(),
+      };
+
+      this.pendingPermissionRequestsByInputId.set(`${payload.instanceId}:${payload.requestId}`, request);
+
+      const decision = getPermissionManager().checkPermission(request);
+      if (decision.action === 'allow' || decision.action === 'deny') {
+        const response =
+          decision.action === 'allow'
+            ? `Permission granted. (Rule: ${decision.reason})`
+            : `Permission denied. (Rule: ${decision.reason})`;
+        try {
+          await this.sendInputResponse(payload.instanceId, response, permissionKey);
+        } catch {
+          // ignore
+        }
+
+        // Add an explicit system note so the user isn't left with an unrespondable prompt.
+        if (instance) {
+          const msg = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system' as const,
+            content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} by rules: ${decision.reason}`,
+            metadata: { permissionDecision: true, action: decision.action, reason: decision.reason }
+          };
+          this.communication.addToOutputBuffer(instance, msg);
+          this.emit('instance:output', { instanceId: payload.instanceId, message: msg });
+        }
+
+        return;
+      }
+    }
+
+    // Default behavior: forward to renderer and let the user decide.
+    this.emit('instance:input-required', payload);
+    console.log('[InstanceManager] instance:input-required event emitted');
+  }
+
+  recordInputRequiredPermissionDecision(params: {
+    instanceId: string;
+    requestId: string;
+    action: 'allow' | 'deny';
+    scope: 'once' | 'session' | 'always';
+  }): void {
+    const key = `${params.instanceId}:${params.requestId}`;
+    const req = this.pendingPermissionRequestsByInputId.get(key);
+    if (!req) return;
+    this.pendingPermissionRequestsByInputId.delete(key);
+    try {
+      getPermissionManager().recordUserDecision(params.instanceId, req, params.action, params.scope);
+    } catch {
+      // ignore
+    }
+  }
+
+  clearPendingInputRequiredPermission(instanceId: string, requestId: string): void {
+    this.pendingPermissionRequestsByInputId.delete(`${instanceId}:${requestId}`);
   }
 
   // ============================================
@@ -263,16 +391,40 @@ export class InstanceManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
+    // Resolve slash commands before we do any context budgeting or send to the provider.
+    // This keeps UX consistent (user types `/commit`, instance receives the expanded template).
+    const parsedCommand = parseCommandString(message);
+    let resolvedMessage = message;
+    let resolvedCommandName: string | undefined;
+    let resolvedCommandMeta: { model?: string; agent?: string; subtask?: boolean; source?: string } | undefined;
+    if (parsedCommand) {
+      const cmdManager = getCommandManager();
+      const storeOrBuiltin = cmdManager.getCommandByName(parsedCommand.name);
+      const fileCmd = await getMarkdownCommandRegistry().getCommand(instance.workingDirectory, parsedCommand.name);
+      const cmd = storeOrBuiltin || fileCmd;
+
+      if (cmd) {
+        resolvedCommandName = cmd.name;
+        resolvedMessage = resolveTemplate(cmd.template, parsedCommand.args);
+        resolvedCommandMeta = {
+          model: cmd.model,
+          agent: cmd.agent,
+          subtask: cmd.subtask,
+          source: cmd.source,
+        };
+      }
+    }
+
     // Update activity and request count
     instance.requestCount++;
     instance.lastActivity = Date.now();
 
     // Calculate context budget and build contexts
-    const budgets = this.context.calculateContextBudget(instance, message);
+    const budgets = this.context.calculateContextBudget(instance, resolvedMessage);
 
     const [rlmContext, unifiedMemoryContext] = await Promise.all([
-      this.context.buildRlmContext(instanceId, message, budgets.rlmMaxTokens, budgets.rlmTopK),
-      this.context.buildUnifiedMemoryContext(instance, message, generateId(), budgets.unifiedMaxTokens)
+      this.context.buildRlmContext(instanceId, resolvedMessage, budgets.rlmMaxTokens, budgets.rlmTopK),
+      this.context.buildUnifiedMemoryContext(instance, resolvedMessage, generateId(), budgets.unifiedMaxTokens)
     ]);
 
     if (rlmContext) {
@@ -322,8 +474,38 @@ export class InstanceManager extends EventEmitter {
         data: a.data
       }))
     };
+    if (resolvedCommandName) {
+      userMessage.metadata = {
+        ...(userMessage.metadata || {}),
+        command: {
+          name: resolvedCommandName,
+          resolved: true,
+          resolvedPromptLength: resolvedMessage.length,
+          source: resolvedCommandMeta?.source,
+          model: resolvedCommandMeta?.model,
+          agent: resolvedCommandMeta?.agent,
+          subtask: resolvedCommandMeta?.subtask,
+        },
+      };
+    }
     this.communication.addToOutputBuffer(instance, userMessage);
     this.emit('instance:output', { instanceId, message: userMessage });
+
+    // If the command requests a subtask (or specifies model/agent), run it in a child instance.
+    // This avoids trying to change system prompts/models mid-session.
+    const shouldRunAsSubtask =
+      !!resolvedCommandName &&
+      (resolvedCommandMeta?.subtask === true ||
+        !!resolvedCommandMeta?.model ||
+        !!resolvedCommandMeta?.agent);
+    if (shouldRunAsSubtask) {
+      await this.spawnCommandSubtask(instanceId, resolvedMessage, {
+        commandName: resolvedCommandName!,
+        model: resolvedCommandMeta?.model,
+        agent: resolvedCommandMeta?.agent,
+      });
+      return;
+    }
 
     // Build context blocks
     const contextBlocks = [
@@ -335,15 +517,71 @@ export class InstanceManager extends EventEmitter {
     // Prepend orchestration prompt to first message
     if (!this.hasReceivedFirstMessage.has(instanceId)) {
       this.hasReceivedFirstMessage.add(instanceId);
-      const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
-      const prefix = contextBlock ? `${contextBlock}\n\n` : '';
-      contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
-    }
+    const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
+    const prefix = contextBlock ? `${contextBlock}\n\n` : '';
+    contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
+  }
 
-    await this.communication.sendInput(instanceId, message, attachments, contextBlock);
+    await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock);
+  }
+
+  private async spawnCommandSubtask(
+    parentId: string,
+    task: string,
+    options: { commandName: string; model?: string; agent?: string }
+  ): Promise<void> {
+    const parent = this.state.getInstance(parentId);
+    if (!parent) throw new Error(`Parent instance ${parentId} not found`);
+
+    const spawnCommand: SpawnChildCommand = {
+      action: 'spawn_child',
+      task,
+      name: `/${options.commandName}`,
+      agentId: options.agent,
+      model: options.model,
+      provider: parent.provider === 'openai' ? 'codex' : (parent.provider as any),
+    };
+
+    const childAgentId = this.orchestrationMgr.resolveChildAgentId(spawnCommand);
+    const routingDecision = this.orchestrationMgr.routeChildModel(task, spawnCommand.model, childAgentId);
+
+    // Best-effort notify the user in the UI that we spawned a subtask.
+    const systemNote = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system' as const,
+      content: `Running /${options.commandName} as a subtask (agent: ${options.agent || 'auto'}, model: ${routingDecision.model}).`,
+      metadata: { source: 'command-subtask', commandName: options.commandName, model: routingDecision.model, agent: options.agent },
+    };
+    this.communication.addToOutputBuffer(parent, systemNote);
+    this.emit('instance:output', { instanceId: parentId, message: systemNote });
+
+    // Create a child instance directly (same internal mechanics as orchestrator-driven spawning).
+    // This intentionally does not reference external repos; it uses our own child prompt format.
+    const tempChildId = generateId();
+    const childPrompt = generateChildPrompt(tempChildId, parentId, spawnCommand.task);
+
+    const resolvedProvider =
+      spawnCommand.provider === 'codex'
+        ? 'openai'
+        : (spawnCommand.provider || parent.provider || 'auto');
+
+    await this.createInstance({
+      workingDirectory: parent.workingDirectory,
+      displayName: spawnCommand.name || `Child of ${parent.displayName}`,
+      parentId,
+      initialPrompt: childPrompt,
+      yoloMode: false,
+      agentId: childAgentId,
+      modelOverride: routingDecision.model,
+      provider: resolvedProvider,
+      initialOutputBuffer: parent.outputBuffer.slice(-50),
+    });
   }
 
   async sendInputResponse(instanceId: string, response: string, permissionKey?: string): Promise<void> {
+    // Clear any stored permission request mapping for this input if present.
+    // (requestId is only available in IPC payload; best-effort cleanup is done in IPC handler too.)
     return this.communication.sendInputResponse(instanceId, response, permissionKey);
   }
 
@@ -486,8 +724,15 @@ export class InstanceManager extends EventEmitter {
   /**
    * Handle a child instance exiting - notify parent, capture results, clean up tasks.
    * This fixes the issue where children could exit without the parent ever knowing.
+   *
+   * Flow:
+   *   1. Auto-capture result if child didn't use report_result
+   *   2. Get child summary from storage
+   *   3. Add a system notification to parent's UI output buffer
+   *   4. Call notifyChildTerminated with result data → injects to parent CLI
+   *   5. If remainingChildren === 0, gather all completed summaries → synthesis prompt
    */
-  private handleChildExit(childId: string, child: Instance, exitCode: number | null): void {
+  private async handleChildExit(childId: string, child: Instance, exitCode: number | null): Promise<void> {
     if (!child.parentId) return;
 
     const orchestration = this.orchestrationMgr.getOrchestrationHandler();
@@ -505,28 +750,116 @@ export class InstanceManager extends EventEmitter {
         : 'Child exited without reporting a result.';
       const success = exitCode === 0;
 
-      storage.storeFromOutputBuffer(
-        childId,
-        child.parentId,
-        task?.task || child.displayName,
-        summary,
-        success,
-        child.outputBuffer,
-        child.createdAt
-      ).catch(err => {
+      try {
+        await storage.storeFromOutputBuffer(
+          childId,
+          child.parentId,
+          task?.task || child.displayName,
+          summary,
+          success,
+          child.outputBuffer,
+          child.createdAt
+        );
+      } catch (err) {
         console.error(`[ChildExit] Failed to auto-capture result for ${childId}:`, err);
-      });
+      }
     }
 
-    // 2. Clean up tasks in TaskManager
+    // 2. Get child summary for both UI notification and CLI injection
+    let childSummaryData: { summary: string; success: boolean; conclusions: string[] } | undefined;
+    try {
+      const childSummary = await storage.getChildSummary(childId);
+      if (childSummary) {
+        childSummaryData = {
+          summary: childSummary.summary,
+          success: childSummary.success,
+          conclusions: childSummary.conclusions
+        };
+      }
+    } catch (err) {
+      console.error(`[ChildExit] Failed to get child summary for ${childId}:`, err);
+    }
+
+    // 3. Add system notification to parent's UI output buffer
+    const parent = this.state.getInstance(child.parentId);
+    if (parent) {
+      let resultContent = `**Child completed:** ${child.displayName} (\`${childId}\`)`;
+      if (childSummaryData) {
+        resultContent += `\n\n**Result:** ${childSummaryData.success ? 'Success' : 'Failed'}`;
+        resultContent += `\n\n${childSummaryData.summary}`;
+        if (childSummaryData.conclusions.length > 0) {
+          resultContent += `\n\n**Key findings:**\n${childSummaryData.conclusions.map(c => `- ${c}`).join('\n')}`;
+        }
+      }
+
+      const resultMessage: OutputMessage = {
+        id: `child-result-${Date.now()}-${childId.slice(-6)}`,
+        timestamp: Date.now(),
+        type: 'system' as const,
+        content: resultContent,
+        metadata: { source: 'child-result', childId, exitCode }
+      };
+      this.communication.addToOutputBuffer(parent, resultMessage);
+      this.emit('instance:output', { instanceId: child.parentId, message: resultMessage });
+    }
+
+    // 4. Clean up tasks in TaskManager
     taskManager.cleanupChildTasks(childId);
 
-    // 3. Notify the parent that this child has exited
-    orchestration.notifyChildTerminated(child.parentId, childId);
+    // 5. Notify parent CLI with rich result data (not just "terminated")
+    const resultData = childSummaryData
+      ? {
+          name: child.displayName,
+          summary: childSummaryData.summary,
+          success: childSummaryData.success,
+          conclusions: childSummaryData.conclusions
+        }
+      : undefined;
+
+    const { remainingChildren } = orchestration.notifyChildTerminated(
+      child.parentId,
+      childId,
+      resultData
+    );
 
     console.log(
-      `[ChildExit] Child ${childId} exited (code=${exitCode}), parent ${child.parentId} notified, task cleaned up`
+      `[ChildExit] Child ${childId} exited (code=${exitCode}), parent ${child.parentId} notified (${remainingChildren} remaining)`
     );
+
+    // 6. If all children are done, inject synthesis prompt to parent CLI
+    if (remainingChildren === 0) {
+      const completedIds = orchestration.getCompletedChildIds(child.parentId);
+      const summaries = await Promise.all(
+        completedIds.map(async (cId) => {
+          try {
+            const s = await storage.getChildSummary(cId);
+            const inst = this.state.getInstance(cId);
+            return {
+              childId: cId,
+              name: inst?.displayName || s?.childId || cId,
+              summary: s?.summary || 'No summary available',
+              success: s?.success ?? false,
+              conclusions: s?.conclusions || []
+            };
+          } catch {
+            return {
+              childId: cId,
+              name: cId,
+              summary: 'Failed to retrieve summary',
+              success: false,
+              conclusions: []
+            };
+          }
+        })
+      );
+
+      if (summaries.length > 0) {
+        orchestration.notifyAllChildrenCompleted(child.parentId, summaries);
+        console.log(
+          `[ChildExit] All ${summaries.length} children completed for parent ${child.parentId}, synthesis prompt injected`
+        );
+      }
+    }
   }
 
   // ============================================

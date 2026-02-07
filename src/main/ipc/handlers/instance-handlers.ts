@@ -582,6 +582,8 @@ export function registerInstanceHandlers(deps: {
         requestId: string;
         response: string;
         permissionKey?: string;
+        decisionAction?: 'allow' | 'deny';
+        decisionScope?: 'once' | 'session' | 'always';
       }
     ): Promise<IpcResponse> => {
       try {
@@ -598,6 +600,21 @@ export function registerInstanceHandlers(deps: {
           validatedPayload.response,
           validatedPayload.permissionKey
         );
+
+        instanceManager.clearPendingInputRequiredPermission(
+          validatedPayload.instanceId,
+          validatedPayload.requestId
+        );
+
+        // If the renderer attached a permission decision, persist it via PermissionManager.
+        if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
+          instanceManager.recordInputRequiredPermissionDecision({
+            instanceId: validatedPayload.instanceId,
+            requestId: validatedPayload.requestId,
+            action: validatedPayload.decisionAction,
+            scope: validatedPayload.decisionScope,
+          });
+        }
 
         return {
           success: true,

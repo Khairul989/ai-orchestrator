@@ -1,0 +1,451 @@
+{
+  "generatedAt": "2026-02-07T10:41:50.671Z",
+  "projectRoot": "/Users/suas/work/orchestrat0r/claude-orchestrator",
+  "tasks": {
+    "KA-1": {
+      "description": "All IPC handlers registered with ipcMain.handle() or ipcMain.on()",
+      "totalCount": 15,
+      "handlers": [
+        {
+          "channel": "cli:detect-all",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 82,
+          "type": "handle"
+        },
+        {
+          "channel": "cli:detect-one",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 113,
+          "type": "handle"
+        },
+        {
+          "channel": "cli:test-connection",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 136,
+          "type": "handle"
+        },
+        {
+          "channel": "cli:check",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 166,
+          "type": "handle"
+        },
+        {
+          "channel": "copilot:list-models",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 193,
+          "type": "handle"
+        },
+        {
+          "channel": "provider:list-models",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 219,
+          "type": "handle"
+        },
+        {
+          "channel": "verification:start-cli",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 285,
+          "type": "handle"
+        },
+        {
+          "channel": "verification:cancel",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 345,
+          "type": "handle"
+        },
+        {
+          "channel": "verification:cancel-all",
+          "file": "src/main/ipc/cli-verification-ipc-handler.ts",
+          "line": 386,
+          "type": "handle"
+        },
+        {
+          "channel": "user-action-response",
+          "file": "src/main/ipc/ipc-main-handler.ts",
+          "line": 347,
+          "type": "on"
+        },
+        {
+          "channel": "rlm:get-token-savings-history",
+          "file": "src/main/ipc/learning-ipc-handler.ts",
+          "line": 203,
+          "type": "handle"
+        },
+        {
+          "channel": "rlm:get-query-stats",
+          "file": "src/main/ipc/learning-ipc-handler.ts",
+          "line": 214,
+          "type": "handle"
+        },
+        {
+          "channel": "rlm:get-storage-stats",
+          "file": "src/main/ipc/learning-ipc-handler.ts",
+          "line": 225,
+          "type": "handle"
+        },
+        {
+          "channel": "rlm:export-store",
+          "file": "src/main/ipc/learning-ipc-handler.ts",
+          "line": 237,
+          "type": "handle"
+        },
+        {
+          "channel": "rlm:import-store",
+          "file": "src/main/ipc/learning-ipc-handler.ts",
+          "line": 250,
+          "type": "handle"
+        }
+      ]
+    },
+    "KA-2": {
+      "description": "All classes implementing singleton pattern with static getInstance()",
+      "totalCount": 36,
+      "singletons": [
+        {
+          "className": "AnswerAgent",
+          "file": "src/main/memory/answer-agent.ts",
+          "line": 64,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "BackgroundTaskManager",
+          "file": "src/main/tasks/background-task-manager.ts",
+          "line": 133,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "CircuitBreaker",
+          "file": "src/main/process/circuit-breaker.ts",
+          "line": 260,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "CircuitBreakerRegistry",
+          "file": "src/main/core/circuit-breaker.ts",
+          "line": 464,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "CliDetectionService",
+          "file": "src/main/cli/cli-detection.ts",
+          "line": 176,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "CliVerificationCoordinator",
+          "file": "src/main/orchestration/cli-verification-extension.ts",
+          "line": 90,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "ConsensusManager",
+          "file": "src/main/orchestration/consensus.ts",
+          "line": 125,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "ContextCompactor",
+          "file": "src/main/context/context-compactor.ts",
+          "line": 105,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "CritiqueAgent",
+          "file": "src/main/memory/critique-agent.ts",
+          "line": 103,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "FailoverManager",
+          "file": "src/main/providers/failover-manager.ts",
+          "line": 125,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "GRPOTrainer",
+          "file": "src/main/learning/grpo-trainer.ts",
+          "line": 80,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "HabitTracker",
+          "file": "src/main/learning/habit-tracker.ts",
+          "line": 107,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "HealthChecker",
+          "file": "src/main/core/system/health-checker.ts",
+          "line": 101,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "HookEngine",
+          "file": "src/main/hooks/hook-engine.ts",
+          "line": 22,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "HookExecutor",
+          "file": "src/main/hooks/hook-executor.ts",
+          "line": 73,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "HotModelSwitcher",
+          "file": "src/main/routing/hot-model-switcher.ts",
+          "line": 201,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "HybridRetrievalManager",
+          "file": "src/main/memory/hybrid-retrieval.ts",
+          "line": 123,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "InsufficientAgentsError",
+          "file": "src/main/orchestration/multi-verify-coordinator.ts",
+          "line": 53,
+          "hasResetForTesting": true
+        },
+        {
+          "className": "JITContextLoader",
+          "file": "src/main/context/jit-loader.ts",
+          "line": 137,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "MemoryManagerAgent",
+          "file": "src/main/memory/r1-memory-manager.ts",
+          "line": 47,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "NetworkPolicy",
+          "file": "src/main/security/network-policy.ts",
+          "line": 157,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "PermissionManager",
+          "file": "src/main/security/permission-manager.ts",
+          "line": 317,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "PreferenceStore",
+          "file": "src/main/learning/preference-store.ts",
+          "line": 150,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "profiles",
+          "file": "src/main/agents/agent-registry.ts",
+          "line": 80,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "RestartPolicy",
+          "file": "src/main/orchestration/restart-policy.ts",
+          "line": 60,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "RetryManager",
+          "file": "src/main/core/retry-manager.ts",
+          "line": 71,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "ReviewCoordinator",
+          "file": "src/main/agents/review-coordinator.ts",
+          "line": 55,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "SkillLoader",
+          "file": "src/main/skills/skill-loader.ts",
+          "line": 29,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "SkillMatcher",
+          "file": "src/main/skills/skill-matcher.ts",
+          "line": 125,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "SmartCompactionManager",
+          "file": "src/main/rlm/smart-compaction.ts",
+          "line": 208,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "SupervisorTree",
+          "file": "src/main/process/supervisor-tree.ts",
+          "line": 63,
+          "hasResetForTesting": true
+        },
+        {
+          "className": "SynthesisAgent",
+          "file": "src/main/orchestration/synthesis-agent.ts",
+          "line": 66,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "ToolRegistry",
+          "file": "src/main/tools/tool-registry.ts",
+          "line": 58,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "TrainingLoop",
+          "file": "src/main/memory/training-loop.ts",
+          "line": 94,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "VotingSystem",
+          "file": "src/main/orchestration/voting.ts",
+          "line": 126,
+          "hasResetForTesting": false
+        },
+        {
+          "className": "WorktreeManager",
+          "file": "src/main/workspace/git/worktree-manager.ts",
+          "line": 33,
+          "hasResetForTesting": false
+        }
+      ]
+    },
+    "KA-3": {
+      "description": "All files that import from orchestration-handler.ts",
+      "totalCount": 1,
+      "importingFiles": [
+        {
+          "file": "src/main/instance/instance-orchestration.ts",
+          "line": 6,
+          "importStatement": "import { OrchestrationHandler } from '../orchestration/orchestration-handler'"
+        }
+      ]
+    },
+    "KA-4": {
+      "description": "Synthetic bugs injected for benchmark testing",
+      "totalCount": 3,
+      "bugs": [
+        {
+          "id": "BUG-001",
+          "file": "src/main/orchestration/orchestration-handler.ts",
+          "line": 0,
+          "description": "Off-by-one error in child count check",
+          "originalCode": "if (!ctx.childrenIds.includes(command.childId))",
+          "buggyCode": "// BUG: Off-by-one error - should use includes not indexOf\nif (ctx.childrenIds.indexOf(command.childId) > 0)"
+        },
+        {
+          "id": "BUG-002",
+          "file": "src/main/instance/instance-orchestration.ts",
+          "line": 0,
+          "description": "Missing null check before accessing property",
+          "originalCode": "const child = this.deps.getInstance(command.childId);",
+          "buggyCode": "// BUG: Missing null check - child could be undefined\nconst child = this.deps.getInstance(command.childId)!;"
+        },
+        {
+          "id": "BUG-003",
+          "file": "src/main/routing/model-router.ts",
+          "line": 0,
+          "description": "Wrong comparison operator in complexity check",
+          "originalCode": "if (score >= this.config.complexityThreshold)",
+          "buggyCode": "// BUG: Should be >= not > for threshold comparison\nif (score > this.config.complexityThreshold)"
+        }
+      ]
+    },
+    "KA-5": {
+      "description": "Trace path from user sending message to child instance being spawned",
+      "tracePath": [
+        {
+          "step": 1,
+          "file": "src/renderer/app/features/chat/chat.component.ts",
+          "function": "sendMessage()",
+          "description": "User types message and clicks send in the chat UI"
+        },
+        {
+          "step": 2,
+          "file": "src/renderer/app/core/services/instance.service.ts",
+          "function": "sendInput()",
+          "description": "Angular service calls Electron IPC to send message"
+        },
+        {
+          "step": 3,
+          "file": "src/preload/preload.ts",
+          "function": "electronAPI.sendInput()",
+          "description": "Preload script bridges renderer to main process via contextBridge"
+        },
+        {
+          "step": 4,
+          "file": "src/main/ipc/instance-handlers.ts",
+          "function": "ipcMain.handle(INSTANCE_SEND_INPUT)",
+          "description": "Main process IPC handler receives the message"
+        },
+        {
+          "step": 5,
+          "file": "src/main/instance/instance-manager.ts",
+          "function": "sendInput()",
+          "description": "Instance manager forwards to the CLI adapter"
+        },
+        {
+          "step": 6,
+          "file": "src/main/cli/adapters/claude-cli-adapter.ts",
+          "function": "sendInput()",
+          "description": "CLI adapter sends input to Claude process stdin"
+        },
+        {
+          "step": 7,
+          "file": "src/main/cli/adapters/claude-cli-adapter.ts",
+          "function": "handleOutput()",
+          "description": "Claude responds with orchestrator command in output"
+        },
+        {
+          "step": 8,
+          "file": "src/main/instance/instance-manager.ts",
+          "function": "processOutput()",
+          "description": "Output is processed, orchestration commands detected"
+        },
+        {
+          "step": 9,
+          "file": "src/main/instance/instance-orchestration.ts",
+          "function": "processOrchestrationOutput()",
+          "description": "Orchestration manager parses spawn_child command"
+        },
+        {
+          "step": 10,
+          "file": "src/main/orchestration/orchestration-handler.ts",
+          "function": "handleSpawnChild()",
+          "description": "Orchestration handler emits spawn-child event"
+        },
+        {
+          "step": 11,
+          "file": "src/main/instance/instance-orchestration.ts",
+          "function": "on(spawn-child)",
+          "description": "Event listener creates the child instance"
+        },
+        {
+          "step": 12,
+          "file": "src/main/instance/instance-manager.ts",
+          "function": "createChildInstance()",
+          "description": "Child instance is created with task and parent reference"
+        }
+      ],
+      "keyFiles": [
+        "src/renderer/app/features/chat/",
+        "src/preload/preload.ts",
+        "src/main/ipc/instance-handlers.ts",
+        "src/main/instance/instance-manager.ts",
+        "src/main/instance/instance-orchestration.ts",
+        "src/main/orchestration/orchestration-handler.ts",
+        "src/main/cli/adapters/claude-cli-adapter.ts"
+      ]
+    }
+  }
+}

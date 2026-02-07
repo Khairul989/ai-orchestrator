@@ -369,14 +369,19 @@ export class MultiVerifyCoordinator extends EventEmitter {
 
         this.emit('verification:invoke-agent', {
           requestId: request.id,
+          instanceId: request.instanceId,
           agentId: agentConfig.agentId,
           model: agentConfig.model,
           systemPrompt,
           userPrompt: request.prompt,
           context: request.context,
-          callback: (response: string, tokens: number, cost: number) => {
+          callback: (err: string | null, response?: string, tokens?: number, cost?: number) => {
             clearTimeout(timeout);
-            resolve({ response, tokens, cost });
+            if (err) {
+              reject(new Error(err));
+              return;
+            }
+            resolve({ response: response || '', tokens: tokens || 0, cost: cost || 0 });
           },
         });
       });

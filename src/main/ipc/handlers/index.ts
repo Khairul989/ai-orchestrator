@@ -24,3 +24,4 @@ export { registerFileHandlers } from './file-handlers';
 export { registerCodebaseHandlers } from './codebase-handlers';
 export { registerSupervisionHandlers } from './supervision-handlers';
 export { registerRecentDirectoriesHandlers } from './recent-directories-handlers';
+export { registerEcosystemHandlers } from './ecosystem-handlers';

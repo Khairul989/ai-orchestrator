@@ -49,6 +49,7 @@ class CommandManager {
         id: `builtin-${cmd.name}`,
         createdAt: now,
         updatedAt: now,
+        source: 'builtin',
       };
       this.builtInCommands.set(command.id, command);
     }
@@ -59,7 +60,7 @@ class CommandManager {
    */
   getAllCommands(): CommandTemplate[] {
     const builtIn = Array.from(this.builtInCommands.values());
-    const custom = store.get('customCommands');
+    const custom = store.get('customCommands').map((c) => ({ ...c, source: 'store' as const }));
     return [...builtIn, ...custom];
   }
 
@@ -146,6 +147,7 @@ class CommandManager {
       builtIn: false,
       createdAt: now,
       updatedAt: now,
+      source: 'store',
     };
 
     const custom = store.get('customCommands');

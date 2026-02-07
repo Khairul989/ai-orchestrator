@@ -19,7 +19,9 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
 import { getSupervisorTree } from '../process';
-import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
+import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
+import { getAgentRegistry } from '../agents/agent-registry';
+import { getPermissionManager } from '../security/permission-manager';
 import { getDisallowedTools } from '../../shared/utils/permission-mapper';
 import { generateId } from '../../shared/utils/id-generator';
 import { LIMITS } from '../../shared/constants/limits';
@@ -165,11 +167,11 @@ export class InstanceLifecycleManager extends EventEmitter {
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
     logger.info('Creating instance', { config });
 
-    // Resolve agent profile
-    const agent = config.agentId
-      ? getAgentById(config.agentId)
-      : getDefaultAgent();
-    const resolvedAgent = agent || getDefaultAgent();
+    // Resolve agent profile (built-in + optional markdown-defined)
+    const resolvedAgent = await getAgentRegistry().resolveAgent(
+      config.workingDirectory,
+      config.agentId || null
+    );
 
     // Resolve context inheritance (merge with defaults)
     const defaultInheritance = createDefaultContextInheritance();
@@ -200,6 +202,13 @@ export class InstanceLifecycleManager extends EventEmitter {
           resolvedAgentId = parent.agentId;
         }
       }
+    }
+
+    // Load project permission rules early so the first prompts can be auto-decided.
+    try {
+      getPermissionManager().loadProjectRules(resolvedWorkingDir);
+    } catch {
+      // ignore
     }
 
     // Resolve termination policy
@@ -358,7 +367,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       model: modelOverride,
       yoloMode: instance.yoloMode,
       allowedTools: defaultAllowedTools,
-      disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined
+      disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+      resume: config.resume
     };
 
     const adapter = createCliAdapter(resolvedCliType, spawnOptions);
@@ -633,9 +643,11 @@ export class InstanceLifecycleManager extends EventEmitter {
       return instance;
     }
 
-    const newAgent = getAgentById(newAgentId);
+    // Resolve from registry first (allows markdown-defined agents). Fall back to built-ins for safety.
+    const newAgent = await getAgentRegistry().resolveAgent(instance.workingDirectory, newAgentId);
     if (!newAgent) {
-      throw new Error(`Agent ${newAgentId} not found`);
+      const builtin = getAgentById(newAgentId);
+      if (!builtin) throw new Error(`Agent ${newAgentId} not found`);
     }
 
     const oldAgentId = instance.agentId;

@@ -1,6 +1,7 @@
 {
   "compileOnSave": false,
   "exclude": [
+    "dist",
     "vitest.config.ts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",

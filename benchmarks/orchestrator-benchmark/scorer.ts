@@ -9,7 +9,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import type { BenchmarkTask, KnownAnswerScore } from './types.js';
+import type { BenchmarkTask, KnownAnswerScore, NeedleDefinition, NiahScore } from './types.js';
 
 const GROUND_TRUTH_PATH = join(import.meta.dirname, 'tasks/setup/ground-truth.json');
 
@@ -18,19 +18,19 @@ interface GroundTruth {
   tasks: {
     'KA-1': {
       totalCount: number;
-      handlers: Array<{ channel: string; file: string }>;
+      handlers: { channel: string; file: string }[];
     };
     'KA-2': {
       totalCount: number;
-      singletons: Array<{ className: string; file: string }>;
+      singletons: { className: string; file: string }[];
     };
     'KA-3': {
       totalCount: number;
-      importingFiles: Array<{ file: string }>;
+      importingFiles: { file: string }[];
     };
     'KA-4': {
       totalCount: number;
-      bugs: Array<{ id: string; description: string }>;
+      bugs: { id: string; description: string }[];
     };
   };
 }
@@ -249,4 +249,119 @@ export function formatScore(score: KnownAnswerScore): string {
  */
 export function hasGroundTruth(): boolean {
   return existsSync(GROUND_TRUTH_PATH);
+}
+
+/**
+ * Score a NIAH (Needle In A Haystack) task output.
+ * Checks whether the planted needles were successfully retrieved.
+ */
+export function scoreNiah(task: BenchmarkTask, output: string): NiahScore {
+  if (!task.expectedRetrieval || !task.needles?.length) {
+    throw new Error(`Task ${task.id} is not a valid NIAH task (missing expectedRetrieval or needles)`);
+  }
+
+  const outputLower = output.toLowerCase();
+  const { requiredFacts, acceptableVariants, requiresMultiNeedleReasoning } = task.expectedRetrieval;
+
+  // Score each needle based on whether its key facts appear in the output
+  const needleResults = task.needles
+    .filter(n => !n.id.startsWith('decoy-')) // Skip decoy needles (they're distractors)
+    .map(needle => {
+      const found = checkNeedleRetrieval(needle, requiredFacts, acceptableVariants, outputLower);
+      return {
+        needleId: needle.id,
+        found: found.retrieved,
+        exactMatch: found.exact,
+      };
+    });
+
+  const retrievedCount = needleResults.filter(r => r.found).length;
+  const totalNeedles = needleResults.length;
+  const retrievalAccuracy = totalNeedles > 0
+    ? Math.round((retrievedCount / totalNeedles) * 1000) / 10
+    : 0;
+
+  // For reasoning tasks, check if the synthesized answer is present
+  let reasoningCorrect: boolean | undefined;
+  if (requiresMultiNeedleReasoning && acceptableVariants?.length) {
+    // The last variant group typically contains the reasoning answer
+    const reasoningVariants = acceptableVariants[acceptableVariants.length - 1];
+    reasoningCorrect = reasoningVariants?.some(v => outputLower.includes(v.toLowerCase())) ?? false;
+  }
+
+  return {
+    retrievalAccuracy,
+    needleResults,
+    reasoningCorrect,
+  };
+}
+
+/**
+ * Check if a specific needle's facts were retrieved in the output.
+ */
+function checkNeedleRetrieval(
+  needle: NeedleDefinition,
+  requiredFacts: string[],
+  acceptableVariants: string[][] | undefined,
+  outputLower: string
+): { retrieved: boolean; exact: boolean } {
+  const needleContentLower = needle.content.toLowerCase();
+
+  let exactMatches = 0;
+  let variantMatches = 0;
+
+  for (let i = 0; i < requiredFacts.length; i++) {
+    const fact = requiredFacts[i];
+    // Only count facts that are relevant to this needle
+    if (!needleContentLower.includes(fact.toLowerCase())) continue;
+
+    if (outputLower.includes(fact.toLowerCase())) {
+      exactMatches++;
+    } else if (acceptableVariants?.[i]) {
+      const hasVariant = acceptableVariants[i].some(v =>
+        outputLower.includes(v.toLowerCase())
+      );
+      if (hasVariant) variantMatches++;
+    }
+  }
+
+  const totalMatches = exactMatches + variantMatches;
+  return {
+    retrieved: totalMatches > 0,
+    exact: exactMatches > 0 && variantMatches === 0,
+  };
+}
+
+/**
+ * Convert a NIAH score to a 0-100 correctness value for unified reporting.
+ */
+export function niahScoreToCorrectness(score: NiahScore): number {
+  let base = score.retrievalAccuracy;
+  if (score.reasoningCorrect === true) {
+    base = Math.min(100, base + 10);
+  } else if (score.reasoningCorrect === false) {
+    base = Math.max(0, base - 10);
+  }
+  return Math.round(base * 10) / 10;
+}
+
+/**
+ * Format a NIAH score for display
+ */
+export function formatNiahScore(score: NiahScore): string {
+  const lines = [
+    `Retrieval Accuracy: ${score.retrievalAccuracy}%`,
+    `Needles Found: ${score.needleResults.filter(r => r.found).length}/${score.needleResults.length}`,
+  ];
+
+  for (const result of score.needleResults) {
+    const status = result.found ? (result.exactMatch ? 'EXACT' : 'FOUND') : 'MISSED';
+    lines.push(`  ${result.needleId}: ${status}`);
+  }
+
+  if (score.reasoningCorrect !== undefined) {
+    lines.push(`Reasoning: ${score.reasoningCorrect ? 'CORRECT' : 'INCORRECT'}`);
+  }
+
+  return lines.join('\n');
 }

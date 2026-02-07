@@ -5,6 +5,7 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
+import type { InstanceManager } from '../instance/instance-manager';
 import type {
   WorkflowGetTemplatePayload,
   WorkflowStartPayload,
@@ -39,6 +40,7 @@ import type {
   SkillsLoadExamplePayload,
   SkillsMatchPayload
 } from '../../shared/types/ipc.types';
+import type { ReviewAgentConfig } from '../../shared/types/review-agent.types';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { getHookEngine } from '../hooks/hook-engine';
 import { getHookManager } from '../hooks/hook-manager';
@@ -47,6 +49,7 @@ import {
   builtInReviewAgents,
   getReviewAgentById
 } from '../agents/review-agents';
+import { getReviewCoordinator } from '../agents/review-coordinator';
 import {
   HookEvent,
   HookContext,
@@ -54,7 +57,7 @@ import {
 } from '../../shared/types/hook.types';
 import { serializeLoadedSkill } from '../../shared/types/skill.types';
 
-export function registerOrchestrationHandlers(): void {
+export function registerOrchestrationHandlers(instanceManager: InstanceManager): void {
   // ============================================
   // Workflow Handlers (6.1)
   // ============================================
@@ -369,6 +372,166 @@ export function registerOrchestrationHandlers(): void {
           success: false,
           error: {
             code: 'REVIEW_GET_AGENT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Start a review session (runs agents and aggregates results)
+  ipcMain.handle(
+    IPC_CHANNELS.REVIEW_START_SESSION,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: ReviewStartSessionPayload
+    ): Promise<IpcResponse> => {
+      try {
+        const instance = instanceManager.getInstance(payload.instanceId);
+        if (!instance) {
+          return {
+            success: false,
+            error: {
+              code: 'REVIEW_INSTANCE_NOT_FOUND',
+              message: `Instance not found: ${payload.instanceId}`,
+              timestamp: Date.now()
+            }
+          };
+        }
+
+        const agents = payload.agentIds
+          .map((id) => getReviewAgentById(id))
+          .filter(Boolean) as ReviewAgentConfig[];
+        if (agents.length !== payload.agentIds.length) {
+          const missing = payload.agentIds.filter((id) => !getReviewAgentById(id));
+          return {
+            success: false,
+            error: {
+              code: 'REVIEW_AGENT_NOT_FOUND',
+              message: `Unknown review agent(s): ${missing.join(', ')}`,
+              timestamp: Date.now()
+            }
+          };
+        }
+
+        const coordinator = getReviewCoordinator();
+        const sessionId = await coordinator.startReview(payload.files || [], agents, {
+          parallel: true,
+          confidenceThreshold: 0,
+          instanceId: payload.instanceId,
+          workingDirectory: instance.workingDirectory,
+          diffOnly: Boolean(payload.diffOnly),
+        });
+
+        return { success: true, data: { sessionId } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REVIEW_START_SESSION_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Get review session status/summary
+  ipcMain.handle(
+    IPC_CHANNELS.REVIEW_GET_SESSION,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: ReviewGetSessionPayload
+    ): Promise<IpcResponse> => {
+      try {
+        const session = getReviewCoordinator().getReview(payload.sessionId);
+        if (!session) {
+          return {
+            success: false,
+            error: {
+              code: 'REVIEW_SESSION_NOT_FOUND',
+              message: `Session not found: ${payload.sessionId}`,
+              timestamp: Date.now()
+            }
+          };
+        }
+        // IPC-friendly serialization (Map -> Array).
+        const serialized = {
+          ...session,
+          results: Array.from(session.results.values())
+        };
+        return { success: true, data: serialized };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REVIEW_GET_SESSION_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Get issues for a review session
+  ipcMain.handle(
+    IPC_CHANNELS.REVIEW_GET_ISSUES,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: ReviewGetIssuesPayload
+    ): Promise<IpcResponse> => {
+      try {
+        const issues = getReviewCoordinator().getIssuesByAgent(
+          payload.sessionId,
+          payload.agentId,
+          payload.severity
+        );
+        return { success: true, data: issues };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REVIEW_GET_ISSUES_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Acknowledge an issue (toggle)
+  ipcMain.handle(
+    IPC_CHANNELS.REVIEW_ACKNOWLEDGE_ISSUE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: ReviewAcknowledgeIssuePayload
+    ): Promise<IpcResponse> => {
+      try {
+        const updated = getReviewCoordinator().acknowledgeIssue(
+          payload.sessionId,
+          payload.issueId,
+          payload.acknowledged
+        );
+        if (!updated) {
+          return {
+            success: false,
+            error: {
+              code: 'REVIEW_ISSUE_NOT_FOUND',
+              message: `Issue not found: ${payload.issueId}`,
+              timestamp: Date.now()
+            }
+          };
+        }
+        return { success: true, data: updated };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REVIEW_ACKNOWLEDGE_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

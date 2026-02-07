@@ -329,6 +329,80 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
     }
   );
 
+  // Read file content as text (bounded)
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_READ_TEXT,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: { path: string; maxBytes?: number }
+    ): Promise<IpcResponse> => {
+      try {
+        const fs = await import('fs/promises');
+
+        const maxBytes = Math.max(
+          1,
+          Math.min(payload.maxBytes ?? 512 * 1024, 5 * 1024 * 1024)
+        );
+        const buf = await fs.readFile(payload.path);
+        const truncated = buf.byteLength > maxBytes;
+        const contentBuf = truncated ? buf.subarray(0, maxBytes) : buf;
+
+        return {
+          success: true,
+          data: {
+            path: payload.path,
+            content: contentBuf.toString('utf-8'),
+            truncated,
+            size: buf.byteLength
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'FILE_READ_TEXT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Write file content as text
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_WRITE_TEXT,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: { path: string; content: string; createDirs?: boolean }
+    ): Promise<IpcResponse> => {
+      try {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+
+        if (payload.createDirs) {
+          await fs.mkdir(path.dirname(payload.path), { recursive: true });
+        }
+
+        await fs.writeFile(payload.path, payload.content ?? '', 'utf-8');
+        const bytesWritten = Buffer.byteLength(payload.content ?? '', 'utf-8');
+        return {
+          success: true,
+          data: { path: payload.path, bytesWritten }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'FILE_WRITE_TEXT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // Open file or folder with system default application
   ipcMain.handle(
     IPC_CHANNELS.FILE_OPEN_PATH,

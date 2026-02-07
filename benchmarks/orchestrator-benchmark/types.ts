@@ -5,7 +5,7 @@
 export interface BenchmarkTask {
   id: string;
   name: string;
-  category: 'known-answer' | 'real-codebase';
+  category: 'known-answer' | 'real-codebase' | 'niah';
   complexity: 'single-file' | 'multi-file' | 'large-context';
   prompt: string;
   workingDirectory: string;
@@ -15,11 +15,53 @@ export interface BenchmarkTask {
     patterns?: string[];
     count?: number;
   };
+  /** For NIAH tasks: needle definitions planted into context */
+  needles?: NeedleDefinition[];
+  /** For NIAH tasks: expected retrieval answers */
+  expectedRetrieval?: {
+    /** Exact strings that must appear in the output */
+    requiredFacts: string[];
+    /** Strings where at least one must appear (for paraphrased answers) */
+    acceptableVariants?: string[][];
+    /** Whether the task requires reasoning across multiple needles */
+    requiresMultiNeedleReasoning?: boolean;
+  };
   /** Setup script to run before task (e.g., inject bugs) */
   setupScript?: string;
   /** Teardown script to run after task (e.g., remove bugs) */
   teardownScript?: string;
   timeoutMinutes: number;
+}
+
+/**
+ * A "needle" is a specific fact planted into the conversation context
+ * that the system should be able to retrieve later.
+ */
+export interface NeedleDefinition {
+  /** Unique ID for this needle */
+  id: string;
+  /** The fact to embed in conversation context */
+  content: string;
+  /** Where in the context to place the needle (0.0 = start, 1.0 = end) */
+  depthPercent: number;
+  /** How the needle should be wrapped in context */
+  wrapper: 'file-exploration' | 'analysis-discussion' | 'code-review' | 'debug-session';
+  /** The file path context the needle appears in (for realism) */
+  contextFile?: string;
+}
+
+export interface NiahScore {
+  /** How many required facts were retrieved (0-100%) */
+  retrievalAccuracy: number;
+  /** Individual needle retrieval results */
+  needleResults: {
+    needleId: string;
+    found: boolean;
+    /** Whether the fact was exactly quoted vs paraphrased */
+    exactMatch: boolean;
+  }[];
+  /** For multi-needle reasoning tasks: was the synthesis correct? */
+  reasoningCorrect?: boolean;
 }
 
 export type ContextStage = 'fresh' | 'moderate' | 'heavy';
@@ -71,6 +113,8 @@ export interface BenchmarkRun {
 
   /** For known-answer tasks */
   knownAnswerScore?: KnownAnswerScore;
+  /** For NIAH tasks */
+  niahScore?: NiahScore;
   /** For real-codebase tasks */
   judgeScores?: JudgeScores;
 

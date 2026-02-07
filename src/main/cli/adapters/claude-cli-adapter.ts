@@ -83,6 +83,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private pendingPermissions: Set<string> = new Set();
   /** Track permissions that user has already approved (to avoid re-prompting after retry fails) */
   private approvedPermissions: Set<string> = new Set();
+  /** Cached context window from last result message for accurate streaming percentage */
+  private lastKnownContextWindow = 200000;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     const config: CliAdapterConfig = {
@@ -114,7 +116,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       multiTurn: true,
       vision: true,
       codeExecution: true,
-      contextWindow: 200000, // Claude 3.5 context window
+      contextWindow: this.lastKnownContextWindow,
       outputFormats: ['ndjson', 'text', 'json']
     };
   }
@@ -747,8 +749,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             (usage.input_tokens || 0) +
             (usage.output_tokens || 0);
 
-          // Default context window - will be updated by result message
-          const contextWindow = 200000;
+          const contextWindow = this.lastKnownContextWindow;
           const percentage = (totalUsedTokens / contextWindow) * 100;
 
           this.emit('context', {
@@ -932,7 +933,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Extract context usage from result message
         if (resultMsg.modelUsage || resultMsg.usage) {
           // Get the model's context window from modelUsage if available
-          let contextWindow = 200000; // Default
+          let contextWindow = this.lastKnownContextWindow;
           let totalUsedTokens = 0;
 
           if (resultMsg.modelUsage) {
@@ -940,7 +941,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             const modelKeys = Object.keys(resultMsg.modelUsage);
             if (modelKeys.length > 0) {
               const modelData = resultMsg.modelUsage[modelKeys[0]];
-              contextWindow = modelData.contextWindow || 200000;
+              contextWindow = modelData.contextWindow || this.lastKnownContextWindow;
+              // Cache for future streaming emissions
+              this.lastKnownContextWindow = contextWindow;
               // inputTokens + outputTokens = actual context window usage
               totalUsedTokens =
                 (modelData.inputTokens || 0) +

@@ -21,6 +21,7 @@ export type OrchestratorAction =
   | 'get_children'
   | 'terminate_child'
   | 'get_child_output'
+  | 'call_tool'
   | 'report_task_complete'
   | 'report_progress'
   | 'report_error'
@@ -64,6 +65,12 @@ export interface GetChildOutputCommand {
   action: 'get_child_output';
   childId: string;
   lastN?: number;
+}
+
+export interface CallToolCommand {
+  action: 'call_tool';
+  toolId: string;
+  args?: unknown;
 }
 
 export interface ReportTaskCompleteCommand {
@@ -141,6 +148,7 @@ export type OrchestratorCommand =
   | GetChildrenCommand
   | TerminateChildCommand
   | GetChildOutputCommand
+  | CallToolCommand
   | ReportTaskCompleteCommand
   | ReportProgressCommand
   | ReportErrorCommand
@@ -176,6 +184,14 @@ Don't spawn for: simple questions, single-file tasks, or sequential dependencies
 - Check progress with \`get_child_output\` (returns last 100 messages by default)
 - **Always terminate children when done**
 
+### Context Management
+Your context window is finite. To work efficiently:
+- **Don't read many/large files directly.** Spawn children for file reading tasks.
+- **Use structured results**: Prefer \`get_child_summary\` over \`get_child_output\`.
+- **Summarize, don't copy**: Have children summarize findings rather than returning full contents.
+- If the system warns about context usage, immediately switch to delegation.
+- If context overflows, the system will compact and retry — follow the guidance provided.
+
 ### Intelligent Model Routing
 Children are automatically routed to the optimal model based on task complexity:
 - **Simple tasks** (file lookups, status checks) → Haiku (fast, cost-effective)
@@ -198,6 +214,7 @@ ${ORCHESTRATION_MARKER_END}
 | get_children | (none) |
 | terminate_child | childId |
 | request_user_action | requestType, title, message, targetMode?, options? |
+| call_tool | toolId, args? |
 
 ### Retrieving Child Results (Context-Safe)
 
@@ -355,6 +372,8 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
       return typeof (cmd as TerminateChildCommand).childId === 'string';
     case 'get_child_output':
       return typeof (cmd as GetChildOutputCommand).childId === 'string';
+    case 'call_tool':
+      return typeof (cmd as CallToolCommand).toolId === 'string';
     case 'report_task_complete':
       return (
         typeof (cmd as ReportTaskCompleteCommand).success === 'boolean' &&

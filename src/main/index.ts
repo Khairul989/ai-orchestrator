@@ -9,6 +9,8 @@ import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
 import { InstanceManager } from './instance/instance-manager';
 import { getHookManager } from './hooks/hook-manager';
+import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker } from './orchestration/default-invokers';
+import { getOrchestratorPluginManager } from './plugins/plugin-manager';
 
 class AIOrchestratorApp {
   private windowManager: WindowManager;
@@ -40,6 +42,13 @@ class AIOrchestratorApp {
 
       // Set up instance manager event forwarding to renderer (only once)
       this.setupInstanceEventForwarding();
+
+      // Wire up default multi-agent invokers (only once)
+      registerDefaultMultiVerifyInvoker(this.instanceManager);
+      registerDefaultReviewInvoker(this.instanceManager);
+
+      // Load/dispatch plugins (only once)
+      getOrchestratorPluginManager().initialize(this.instanceManager);
     }
 
     // Create main window (this loads the renderer which may call IPC)

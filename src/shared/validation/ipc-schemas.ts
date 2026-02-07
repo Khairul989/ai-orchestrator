@@ -96,6 +96,8 @@ export const InputRequiredResponsePayloadSchema = z.object({
   requestId: z.string().min(1).max(100),
   response: z.string().min(1).max(10000),
   permissionKey: z.string().max(200).optional(),
+  decisionAction: z.enum(['allow', 'deny']).optional(),
+  decisionScope: z.enum(['once', 'session', 'always']).optional(),
 });
 
 export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponsePayloadSchema>;

@@ -109,6 +109,485 @@
       "prompt": "Trace the code path from when a user sends a message in the UI to when a child instance is spawned. List each file and function involved in order.",
       "workingDirectory": ".",
       "timeoutMinutes": 10
+    },
+
+    {
+      "id": "NIAH-1",
+      "name": "Single needle retrieval",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "Earlier in our conversation, I mentioned a specific rate limiter configuration. What algorithm does the rate limiter use and what is the refill interval?",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "rate-limiter-config",
+          "content": "I found that the rate limiter in api-gateway.ts uses a token bucket algorithm with a 437ms refill interval and a burst capacity of 23 requests. The configuration is loaded from RATE_LIMIT_CONFIG in the environment.",
+          "depthPercent": 0.3,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/api/api-gateway.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["token bucket", "437"],
+        "acceptableVariants": [
+          ["437ms", "437 ms", "437 millisecond"]
+        ]
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "NIAH-2",
+      "name": "Multi-needle synthesis",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "Earlier we investigated a retry storm issue. Summarize the three timeout values we discovered across the different services and explain whether they could cause cascading failures.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "timeout-gateway",
+          "content": "Looking at the API gateway, the upstream timeout is set to 45 seconds. This is configured in gateway-config.ts on line 87.",
+          "depthPercent": 0.15,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/api/gateway-config.ts"
+        },
+        {
+          "id": "timeout-orchestrator",
+          "content": "The orchestration handler has a child task timeout of 120 seconds, with retry count set to 3. That means a single failed orchestration could block for up to 360 seconds in the worst case.",
+          "depthPercent": 0.45,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/orchestration/orchestration-handler.ts"
+        },
+        {
+          "id": "timeout-instance",
+          "content": "The instance manager's health check runs every 15 seconds with a 5-second timeout. If 3 consecutive health checks fail, the instance is marked as unhealthy and restarted.",
+          "depthPercent": 0.7,
+          "wrapper": "code-review",
+          "contextFile": "src/main/instance/instance-manager.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["45", "120", "15"],
+        "acceptableVariants": [
+          ["45 seconds", "45s", "45-second"],
+          ["120 seconds", "120s", "120-second"],
+          ["15 seconds", "15s", "15-second"]
+        ],
+        "requiresMultiNeedleReasoning": true
+      },
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "NIAH-3",
+      "name": "Needle with reasoning",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "Based on the connection pool settings and the queue depth limit we found earlier, what is the maximum number of concurrent database operations this system can handle? Show your math.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "pool-config",
+          "content": "The database connection pool in db-manager.ts is configured with min: 5, max: 20 connections. Each connection can handle exactly 1 query at a time since we're using synchronous transactions.",
+          "depthPercent": 0.25,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/storage/db-manager.ts"
+        },
+        {
+          "id": "queue-config",
+          "content": "The query queue has a depth limit of 150. Once this limit is reached, new queries are rejected with a QUEUE_FULL error instead of being queued. The queue drains FIFO.",
+          "depthPercent": 0.6,
+          "wrapper": "analysis-discussion",
+          "contextFile": "src/main/storage/query-queue.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["20", "150"],
+        "acceptableVariants": [
+          ["170", "20 + 150", "20 active plus 150 queued"]
+        ],
+        "requiresMultiNeedleReasoning": true
+      },
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "NIAH-4",
+      "name": "Contradictory context resolution",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "What is the correct maximum message size for the IPC channel? I recall we found conflicting values during our investigation.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "msg-size-old",
+          "content": "Looking at ipc-transport.ts, the MAX_MESSAGE_SIZE constant is set to 1MB (1048576 bytes). Messages larger than this are silently dropped.",
+          "depthPercent": 0.2,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/ipc/ipc-transport.ts"
+        },
+        {
+          "id": "msg-size-corrected",
+          "content": "Wait, I was wrong about the message size limit. After reading more carefully, MAX_MESSAGE_SIZE was changed to 4MB (4194304 bytes) in the latest commit. The old 1MB value was causing issues with large context transfers between parent and child instances. Messages over 4MB are now chunked rather than dropped.",
+          "depthPercent": 0.55,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/ipc/ipc-transport.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["4MB", "4194304"],
+        "acceptableVariants": [
+          ["4 MB", "4mb", "4 megabytes", "4194304 bytes"],
+          ["chunked", "chunking"]
+        ]
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "NIAH-5",
+      "name": "Cross-file scattered needle",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "We explored several files looking for the secret admin override code. What was the override code, which file was it in, and what function checks it?",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "decoy-auth-1",
+          "content": "In auth-middleware.ts, there's a standard JWT validation. Nothing unusual here - just standard token verification with RS256.",
+          "depthPercent": 0.1,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/api/auth-middleware.ts"
+        },
+        {
+          "id": "decoy-auth-2",
+          "content": "The session-manager.ts handles session persistence. Uses Redis for session storage with a 24-hour TTL. Standard stuff.",
+          "depthPercent": 0.3,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/api/session-manager.ts"
+        },
+        {
+          "id": "target-needle",
+          "content": "Interesting finding in permission-checker.ts! The function validateAdminAccess() has a hardcoded override: if the request header X-Admin-Override equals 'ORCHESTRATOR-9f8b7c', it bypasses all permission checks. This is on line 142. Looks like a debug backdoor that was never removed.",
+          "depthPercent": 0.5,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/permission-checker.ts"
+        },
+        {
+          "id": "decoy-auth-3",
+          "content": "The rate-limit-guard.ts implements per-user rate limiting. Uses sliding window counter pattern. Max 100 requests per minute per user.",
+          "depthPercent": 0.65,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/api/rate-limit-guard.ts"
+        },
+        {
+          "id": "decoy-auth-4",
+          "content": "Finally, role-resolver.ts maps JWT claims to internal role objects. Nothing security-sensitive here.",
+          "depthPercent": 0.8,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/api/role-resolver.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["ORCHESTRATOR-9f8b7c", "permission-checker", "validateAdminAccess"],
+        "acceptableVariants": [
+          ["ORCHESTRATOR-9f8b7c"],
+          ["permission-checker.ts", "permission-checker"],
+          ["validateAdminAccess", "validate admin access"]
+        ]
+      },
+      "timeoutMinutes": 5
+    },
+
+    {
+      "id": "NIAH-6",
+      "name": "Deep burial retrieval",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "Earlier in our conversation we debugged a memory leak involving WeakRef finalization. What was the setTimeout delay in the cleanup callback, and what was the ref count threshold that triggered cleanup?",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "deep-weakref-bug",
+          "content": "Found the memory leak root cause in resource-pool.ts! The cleanup callback registered via FinalizationRegistry uses setTimeout with a 2718ms delay before releasing the pooled resource. The ref count threshold that triggers cleanup is exactly 42 — once a resource's ref count drops to 42 or below, the weak reference allows GC to collect it. The bug is that the 2718ms delay means resources pile up faster than they're cleaned.",
+          "depthPercent": 0.95,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/memory/resource-pool.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["2718", "42"],
+        "acceptableVariants": [
+          ["2718ms", "2718 ms", "2718 millisecond"],
+          ["42"]
+        ]
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "NIAH-7",
+      "name": "Many needles retrieval",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "During our security audit earlier, we cataloged vulnerabilities across 8 different files. List all 8 vulnerability IDs (CVE-ORCH-xxx) with their severity levels.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "vuln-001",
+          "content": "Security audit finding: CVE-ORCH-001 (CRITICAL) in auth-handler.ts — SQL injection via unsanitized user input in the login query. The username field is directly interpolated into the SQL string.",
+          "depthPercent": 0.05,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/auth-handler.ts"
+        },
+        {
+          "id": "vuln-002",
+          "content": "Security audit finding: CVE-ORCH-002 (HIGH) in file-upload.ts — Path traversal vulnerability. The uploaded filename is not sanitized, allowing ../../ sequences to write outside the upload directory.",
+          "depthPercent": 0.18,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/file-upload.ts"
+        },
+        {
+          "id": "vuln-003",
+          "content": "Security audit finding: CVE-ORCH-003 (HIGH) in session-store.ts — Session fixation. The session ID is not regenerated after authentication, allowing an attacker to fixate a known session.",
+          "depthPercent": 0.28,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/session-store.ts"
+        },
+        {
+          "id": "vuln-004",
+          "content": "Security audit finding: CVE-ORCH-004 (MEDIUM) in cors-config.ts — Overly permissive CORS. The Access-Control-Allow-Origin header is set to * in production, allowing any domain to make credentialed requests.",
+          "depthPercent": 0.38,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/cors-config.ts"
+        },
+        {
+          "id": "vuln-005",
+          "content": "Security audit finding: CVE-ORCH-005 (CRITICAL) in crypto-utils.ts — Use of MD5 for password hashing. The hashPassword function uses MD5 with no salt, making it trivially reversible with rainbow tables.",
+          "depthPercent": 0.48,
+          "wrapper": "code-review",
+          "contextFile": "src/main/utils/crypto-utils.ts"
+        },
+        {
+          "id": "vuln-006",
+          "content": "Security audit finding: CVE-ORCH-006 (LOW) in error-handler.ts — Stack trace leakage. Production error responses include the full stack trace, exposing internal file paths and dependency versions.",
+          "depthPercent": 0.58,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/error-handler.ts"
+        },
+        {
+          "id": "vuln-007",
+          "content": "Security audit finding: CVE-ORCH-007 (MEDIUM) in token-validator.ts — JWT algorithm confusion. The token validation accepts both HS256 and RS256, allowing an attacker to forge tokens using the public key as an HMAC secret.",
+          "depthPercent": 0.72,
+          "wrapper": "code-review",
+          "contextFile": "src/main/api/token-validator.ts"
+        },
+        {
+          "id": "vuln-008",
+          "content": "Security audit finding: CVE-ORCH-008 (HIGH) in log-sanitizer.ts — Sensitive data in logs. The request logger dumps the full request body including passwords, API keys, and tokens to the application log without redaction.",
+          "depthPercent": 0.88,
+          "wrapper": "code-review",
+          "contextFile": "src/main/logging/log-sanitizer.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["CVE-ORCH-001", "CVE-ORCH-002", "CVE-ORCH-003", "CVE-ORCH-004", "CVE-ORCH-005", "CVE-ORCH-006", "CVE-ORCH-007", "CVE-ORCH-008"],
+        "acceptableVariants": [
+          ["CVE-ORCH-001", "CRITICAL"],
+          ["CVE-ORCH-002", "HIGH"],
+          ["CVE-ORCH-003", "HIGH"],
+          ["CVE-ORCH-004", "MEDIUM"],
+          ["CVE-ORCH-005", "CRITICAL"],
+          ["CVE-ORCH-006", "LOW"],
+          ["CVE-ORCH-007", "MEDIUM"],
+          ["CVE-ORCH-008", "HIGH"]
+        ],
+        "requiresMultiNeedleReasoning": true
+      },
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "NIAH-8",
+      "name": "Semantic distraction",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "We went through several iterations of the cache eviction config during our debugging session. What was the final correct configuration after we fixed the issue? Specify the eviction algorithm, max entries, and TTL.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "decoy-cache-1",
+          "content": "Looking at cache-manager.ts, the eviction policy is set to LRU with maxEntries: 4096 and a TTL of 500ms. This seems like a reasonable default configuration.",
+          "depthPercent": 0.1,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/cache/cache-manager.ts"
+        },
+        {
+          "id": "decoy-cache-2",
+          "content": "Wait, I see the eviction was changed to LFU (Least Frequently Used) in a recent commit. maxEntries is still 8192 and TTL is 847ms. The LFU algorithm was chosen for better hit rates on skewed access patterns.",
+          "depthPercent": 0.22,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/cache/cache-manager.ts"
+        },
+        {
+          "id": "decoy-cache-3",
+          "content": "Hmm, looking more carefully at the staging environment, the cache config there uses LRU with maxEntries: 8192 and TTL: 1200ms. This longer TTL was causing stale data issues in staging.",
+          "depthPercent": 0.4,
+          "wrapper": "analysis-discussion",
+          "contextFile": "src/main/cache/cache-manager.ts"
+        },
+        {
+          "id": "cache-final",
+          "content": "OK I figured out the issue. After the fix was deployed, the final production cache configuration is: LRU eviction (we reverted from LFU because it had higher memory overhead), maxEntries: 8192 (doubled from 4096 to handle peak load), and TTL: 847ms (the sweet spot we found through load testing — long enough for cache hits but short enough to avoid staleness). This is the correct and current configuration.",
+          "depthPercent": 0.55,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/cache/cache-manager.ts"
+        },
+        {
+          "id": "decoy-cache-4",
+          "content": "Also noting that the test environment uses FIFO eviction with maxEntries: 2048 and TTL: 847ms. This simplified config is just for test isolation.",
+          "depthPercent": 0.7,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/cache/cache-manager.test.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["LRU", "8192", "847"],
+        "acceptableVariants": [
+          ["LRU", "Least Recently Used"],
+          ["8192"],
+          ["847ms", "847 ms", "847 millisecond"]
+        ]
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "NIAH-9",
+      "name": "Multi-hop reasoning",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "Earlier we discussed the orchestrator's child instance depth limits. What is the maximum child depth, and what is the worst-case total latency overhead from parent to the deepest child? Show your calculation.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "depth-formula",
+          "content": "Looking at depth-limiter.ts, the MAX_DEPTH constant is computed dynamically — it's set to REPLICATION_FACTOR squared. So the maximum nesting depth of child instances equals REPLICATION_FACTOR * REPLICATION_FACTOR. This was designed to scale quadratically with the replication setting.",
+          "depthPercent": 0.15,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/orchestration/depth-limiter.ts"
+        },
+        {
+          "id": "replication-factor",
+          "content": "Found it in orchestrator-config.ts. The REPLICATION_FACTOR constant is set to 7. This determines how many child instances can be spawned at each level, and as we saw earlier, the max depth is derived from this value.",
+          "depthPercent": 0.5,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/orchestration/orchestrator-config.ts"
+        },
+        {
+          "id": "latency-per-level",
+          "content": "Performance profiling shows that each level of child depth adds exactly 340ms of latency overhead. This includes IPC serialization (120ms), process spawn warmup (180ms), and context transfer (40ms). The overhead is additive — so total overhead is depth * 340ms.",
+          "depthPercent": 0.75,
+          "wrapper": "analysis-discussion",
+          "contextFile": "src/main/orchestration/performance-profile.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["49", "340"],
+        "acceptableVariants": [
+          ["49", "7 squared", "7*7", "7 * 7", "7^2"],
+          ["16660", "16660ms", "16.66 seconds", "16.66s"]
+        ],
+        "requiresMultiNeedleReasoning": true
+      },
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "NIAH-10",
+      "name": "Gauntlet",
+      "category": "niah",
+      "complexity": "large-context",
+      "prompt": "Summarize the distributed consensus protocol configuration we debugged earlier. What are the quorum size (and total nodes), election timeout (and jitter factor), log replication batch size, heartbeat interval (and failure detection threshold), snapshot threshold, and leader lease duration? Show how the leader lease is calculated from other values.",
+      "workingDirectory": ".",
+      "needles": [
+        {
+          "id": "consensus-quorum",
+          "content": "The consensus module in raft-consensus.ts uses a quorum of 5 out of 9 total nodes. The quorum requires a strict majority plus one extra node for safety — so with 9 nodes, quorum = floor(9/2) + 1 + 1 = 6... wait no, it's floor(9/2) + 1 = 5. The extra safety margin comes from the leader lease mechanism instead.",
+          "depthPercent": 0.1,
+          "wrapper": "code-review",
+          "contextFile": "src/main/consensus/raft-consensus.ts"
+        },
+        {
+          "id": "consensus-election",
+          "content": "The election timeout in raft-consensus.ts is set to 3741ms with a jitter factor of 0.23. This means actual election timeouts range from 3741 * (1 - 0.23) = 2880ms to 3741 * (1 + 0.23) = 4601ms. The large base timeout reduces unnecessary elections on slow networks.",
+          "depthPercent": 0.25,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/consensus/raft-consensus.ts"
+        },
+        {
+          "id": "decoy-election-old",
+          "content": "Initially we thought the election timeout was 5000ms based on the comment in the config file, but that was from an old version. The current value is different as we confirmed later.",
+          "depthPercent": 0.3,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/consensus/raft-consensus.ts"
+        },
+        {
+          "id": "consensus-batch",
+          "content": "Log replication uses a batch size of 64 entries per AppendEntries RPC. The max payload per batch is 2MB. If a batch exceeds 2MB before reaching 64 entries, it's sent early. This batching significantly reduces RPC overhead during high-write workloads.",
+          "depthPercent": 0.42,
+          "wrapper": "analysis-discussion",
+          "contextFile": "src/main/consensus/log-replicator.ts"
+        },
+        {
+          "id": "decoy-quorum-wrong",
+          "content": "Early in our investigation, we incorrectly read the quorum as 4 out of 9 nodes based on a test fixture. That was the test config — production uses a higher quorum as we discovered later.",
+          "depthPercent": 0.48,
+          "wrapper": "debug-session",
+          "contextFile": "src/main/consensus/raft-consensus.test.ts"
+        },
+        {
+          "id": "consensus-heartbeat",
+          "content": "Heartbeat interval is configured at 1500ms in raft-heartbeat.ts. Failure detection triggers after 3 consecutive missed heartbeats, meaning a node is considered dead after 4500ms (3 * 1500ms) of silence. The heartbeat also carries the leader's commit index for follower catch-up.",
+          "depthPercent": 0.58,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/consensus/raft-heartbeat.ts"
+        },
+        {
+          "id": "decoy-heartbeat-other",
+          "content": "Note: the monitoring cluster uses a faster heartbeat of 500ms, but that's a separate system from the main consensus protocol. Don't confuse the two.",
+          "depthPercent": 0.65,
+          "wrapper": "analysis-discussion",
+          "contextFile": "src/main/monitoring/health-check.ts"
+        },
+        {
+          "id": "consensus-snapshot",
+          "content": "Snapshot threshold is set to 10000 committed log entries in snapshot-manager.ts. Once the log exceeds 10000 entries since the last snapshot, a new snapshot is triggered. The snapshot includes the full state machine state and is used for slow follower catch-up.",
+          "depthPercent": 0.78,
+          "wrapper": "code-review",
+          "contextFile": "src/main/consensus/snapshot-manager.ts"
+        },
+        {
+          "id": "decoy-snapshot-test",
+          "content": "The test configuration uses a snapshot threshold of 5000 entries for faster test execution. This is defined in test-config.ts and should not be confused with the production value.",
+          "depthPercent": 0.85,
+          "wrapper": "file-exploration",
+          "contextFile": "src/main/consensus/test-config.ts"
+        },
+        {
+          "id": "consensus-lease",
+          "content": "The leader lease duration is calculated as heartbeatInterval * quorumSize, which gives us 1500ms * 5 = 7500ms. This ensures the leader can confirm its authority within one lease period by receiving acknowledgments from a quorum. The lease prevents stale reads during leader transitions. This formula is in lease-calculator.ts.",
+          "depthPercent": 0.92,
+          "wrapper": "analysis-discussion",
+          "contextFile": "src/main/consensus/lease-calculator.ts"
+        }
+      ],
+      "expectedRetrieval": {
+        "requiredFacts": ["3741", "0.23", "64", "1500", "4500", "10000", "7500"],
+        "acceptableVariants": [
+          ["3741ms", "3741 ms"],
+          ["0.23", "23%"],
+          ["64 entries", "64"],
+          ["1500ms", "1500 ms"],
+          ["4500ms", "4500 ms", "3 * 1500"],
+          ["10000", "10,000"],
+          ["7500ms", "7500 ms", "1500 * 5", "1500 × 5"]
+        ],
+        "requiresMultiNeedleReasoning": true
+      },
+      "timeoutMinutes": 10
     }
   ]
 }

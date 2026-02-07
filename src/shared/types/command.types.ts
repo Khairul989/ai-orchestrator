@@ -13,6 +13,16 @@ export interface CommandTemplate {
   hint?: string;         // Hint shown when entering command
   shortcut?: string;     // Keyboard shortcut
   builtIn: boolean;      // Whether this is a built-in command
+  /** Origin of this command definition */
+  source?: 'builtin' | 'store' | 'file';
+  /** File path for file-based commands */
+  filePath?: string;
+  /** Optional model preference for executing this command */
+  model?: string;
+  /** Optional agent preference for executing this command */
+  agent?: string;
+  /** If true, run command in a child/subtask instance by default */
+  subtask?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -133,9 +143,12 @@ export function resolveTemplate(template: string, args: string[]): string {
 
   // Replace $ARGUMENTS with all args joined
   result = result.replace(/\$ARGUMENTS/g, args.join(' '));
+  // Also support ${ARGUMENTS} (common in markdown templates)
+  result = result.replace(/\$\{ARGUMENTS\}/g, args.join(' '));
 
   // Clean up any remaining unreplaced placeholders
   result = result.replace(/\$\d+/g, '');
+  result = result.replace(/\$\{\d+\}/g, '');
 
   return result.trim();
 }
@@ -147,9 +160,10 @@ export function parseCommandString(input: string): { name: string; args: string[
   const trimmed = input.trim();
   if (!trimmed.startsWith('/')) return null;
 
-  const parts = trimmed.slice(1).split(/\s+/);
-  const name = parts[0];
+  const parts = trimmed.slice(1).split(/\s+/).filter(Boolean);
+  const name = parts[0] || '';
   const args = parts.slice(1);
 
+  if (!name) return null;
   return { name, args };
 }

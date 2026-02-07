@@ -9,17 +9,22 @@ import {
   MessageChildCommand,
   TerminateChildCommand,
   GetChildOutputCommand,
+  CallToolCommand,
   ReportTaskCompleteCommand,
   ReportProgressCommand,
   ReportErrorCommand,
   GetTaskStatusCommand,
   RequestUserActionCommand,
   parseOrchestratorCommands,
+  ORCHESTRATION_MARKER_START,
+  ORCHESTRATION_MARKER_END,
   formatCommandResponse,
   generateOrchestrationPrompt
 } from './orchestration-protocol';
+import { getToolRegistry } from '../tools/tool-registry';
 import { getTaskManager } from './task-manager';
 import { getChildResultStorage } from './child-result-storage';
+import { getPermissionManager, type PermissionRequest } from '../security/permission-manager';
 import type {
   TaskExecution,
   TaskResult,
@@ -119,9 +124,33 @@ export interface ChildInfo {
   createdAt: number;
 }
 
+export interface ChildTerminationResult {
+  remainingChildren: number;
+}
+
+export interface CompletedChildSummary {
+  childId: string;
+  name: string;
+  summary: string;
+  success: boolean;
+  conclusions: string[];
+}
+
 export class OrchestrationHandler extends EventEmitter {
   private contexts: Map<string, OrchestrationContext> = new Map();
   private pendingUserActions: Map<string, UserActionRequest> = new Map();
+  private userActionWaiters = new Map<string, (approved: boolean, selectedOption?: string) => void>();
+  /** Tracks completed children per parent: parentId → Set<childId> */
+  private completedChildrenIds = new Map<string, Set<string>>();
+  /**
+   * Streaming-safe buffer for orchestrator command parsing.
+   *
+   * Claude/Gemini/Codex CLIs often stream assistant output in multiple chunks; the
+   * `:::ORCHESTRATOR_COMMAND:::` marker block can be split across output events.
+   * If we only parse per-chunk, we'd miss commands and the UI would never show
+   * the requested user-action prompt.
+   */
+  private commandParseBuffers = new Map<string, string>();
 
   /**
    * Register an instance for orchestration
@@ -144,6 +173,16 @@ export class OrchestrationHandler extends EventEmitter {
    */
   unregisterInstance(instanceId: string): void {
     this.contexts.delete(instanceId);
+    this.commandParseBuffers.delete(instanceId);
+
+    // Best-effort cleanup: drop any pending user actions for this instance.
+    // Otherwise they can linger if an instance is terminated while awaiting input.
+    for (const [requestId, request] of this.pendingUserActions.entries()) {
+      if (request.instanceId === instanceId) {
+        this.pendingUserActions.delete(requestId);
+        this.userActionWaiters.delete(requestId);
+      }
+    }
 
     // Remove from parent's children list
     for (const ctx of this.contexts.values()) {
@@ -162,6 +201,24 @@ export class OrchestrationHandler extends EventEmitter {
   }
 
   /**
+   * Check if a child belongs to a parent (active OR completed)
+   */
+  isChildOfParent(parentId: string, childId: string): boolean {
+    const ctx = this.contexts.get(parentId);
+    if (ctx && ctx.childrenIds.includes(childId)) return true;
+    const completed = this.completedChildrenIds.get(parentId);
+    return completed?.has(childId) ?? false;
+  }
+
+  /**
+   * Get completed child IDs for a parent
+   */
+  getCompletedChildIds(parentId: string): string[] {
+    const completed = this.completedChildrenIds.get(parentId);
+    return completed ? Array.from(completed) : [];
+  }
+
+  /**
    * Get the orchestration prompt to prepend to the first message
    */
   getOrchestrationPrompt(instanceId: string, currentModel?: string): string {
@@ -172,11 +229,48 @@ export class OrchestrationHandler extends EventEmitter {
    * Process output from an instance and execute any orchestrator commands
    */
   processOutput(instanceId: string, output: string): void {
-    const commands = parseOrchestratorCommands(output);
+    const start = ORCHESTRATION_MARKER_START;
+    const end = ORCHESTRATION_MARKER_END;
 
-    for (const command of commands) {
-      this.executeCommand(instanceId, command);
+    let buffer = (this.commandParseBuffers.get(instanceId) || '') + output;
+
+    // Hard cap to avoid unbounded growth if an instance streams lots of text without markers.
+    // Keep the tail because a marker might begin near the end of a chunk.
+    const HARD_CAP = 200_000;
+    if (buffer.length > HARD_CAP) {
+      buffer = buffer.slice(buffer.length - HARD_CAP);
     }
+
+    while (true) {
+      const startIdx = buffer.indexOf(start);
+      if (startIdx === -1) {
+        // Keep only the tail that could still contain the beginning of a split marker.
+        const keep = Math.max(0, start.length - 1);
+        buffer = keep > 0 ? buffer.slice(-keep) : '';
+        break;
+      }
+
+      const endIdx = buffer.indexOf(end, startIdx + start.length);
+      if (endIdx === -1) {
+        // We have a start marker but no end marker yet; keep from the start marker onward.
+        buffer = buffer.slice(startIdx);
+        break;
+      }
+
+      const jsonStr = buffer.slice(startIdx + start.length, endIdx).trim();
+      // Use the validated parser to avoid executing malformed commands.
+      const parsedCommands = parseOrchestratorCommands(`${start}\n${jsonStr}\n${end}`);
+      if (parsedCommands.length === 0) {
+        console.warn('Failed to parse orchestrator command (streaming): invalid command shape');
+      } else {
+        for (const cmd of parsedCommands) this.executeCommand(instanceId, cmd);
+      }
+
+      // Drop everything through the end marker and continue scanning for more.
+      buffer = buffer.slice(endIdx + end.length);
+    }
+
+    this.commandParseBuffers.set(instanceId, buffer);
   }
 
   /**
@@ -215,6 +309,10 @@ export class OrchestrationHandler extends EventEmitter {
 
       case 'get_child_output':
         this.handleGetChildOutput(instanceId, command);
+        break;
+
+      case 'call_tool':
+        this.handleCallTool(instanceId, command);
         break;
 
       case 'report_task_complete':
@@ -258,6 +356,57 @@ export class OrchestrationHandler extends EventEmitter {
 
   private handleSpawnChild(parentId: string, command: SpawnChildCommand): void {
     this.emit('spawn-child', parentId, command);
+  }
+
+  private getInstanceDepth(instanceId: string): number {
+    // Best-effort: compute depth by walking parent pointers within the orchestration contexts.
+    let depth = 0;
+    let current = this.contexts.get(instanceId);
+    while (current?.parentId) {
+      depth += 1;
+      current = this.contexts.get(current.parentId);
+      if (depth > 50) break; // Prevent cycles / corrupted state.
+    }
+    return depth;
+  }
+
+  private async requestUserDecision(params: {
+    instanceId: string;
+    title: string;
+    message: string;
+    options: Array<{ id: string; label: string; description?: string }>;
+    context?: Record<string, unknown>;
+    timeoutMs?: number;
+  }): Promise<{ selectedOption?: string }> {
+    const requestId = `uar-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const request: UserActionRequest = {
+      id: requestId,
+      instanceId: params.instanceId,
+      requestType: 'select_option',
+      title: params.title,
+      message: params.message,
+      options: params.options,
+      context: params.context,
+      createdAt: Date.now(),
+    };
+
+    this.pendingUserActions.set(requestId, request);
+    this.emit('user-action-request', request);
+
+    const timeoutMs = params.timeoutMs ?? 5 * 60 * 1000;
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.userActionWaiters.delete(requestId);
+        // Remove request from pending list if it still exists.
+        this.pendingUserActions.delete(requestId);
+        resolve({ selectedOption: undefined });
+      }, timeoutMs);
+
+      this.userActionWaiters.set(requestId, (_approved, selectedOption) => {
+        clearTimeout(timer);
+        resolve({ selectedOption });
+      });
+    });
   }
 
   private handleMessageChild(
@@ -323,6 +472,123 @@ export class OrchestrationHandler extends EventEmitter {
         output
       });
     });
+  }
+
+  /**
+   * Execute a local orchestrator tool and inject the result back into the instance.
+   */
+  private async handleCallTool(instanceId: string, command: CallToolCommand): Promise<void> {
+    const ctx = this.contexts.get(instanceId);
+    if (!ctx) return;
+
+    try {
+      const permissionManager = getPermissionManager();
+      const permissionRequest: PermissionRequest = {
+        id: `perm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        instanceId,
+        scope: 'tool_use',
+        resource: command.toolId,
+        context: {
+          toolName: command.toolId,
+          workingDirectory: ctx.workingDirectory,
+          isChildInstance: Boolean(ctx.parentId),
+          depth: this.getInstanceDepth(instanceId),
+          yoloMode: false, // Best-effort: CLI YOLO is separate from tool permission system today.
+        },
+        timestamp: Date.now(),
+      };
+
+      const decision = permissionManager.checkPermission(permissionRequest);
+      if (decision.action === 'deny') {
+        this.injectResponse(instanceId, 'call_tool', false, {
+          toolId: command.toolId,
+          error: `Permission denied for tool "${command.toolId}"`,
+          reason: decision.reason,
+        });
+        return;
+      }
+
+      if (decision.action === 'ask') {
+        const toolLabel = command.toolId;
+        const toolArgsPreview = command.args ? JSON.stringify(command.args).slice(0, 500) : '';
+        const message = [
+          `Allow running local tool "${toolLabel}"?`,
+          toolArgsPreview ? `Args: ${toolArgsPreview}` : undefined,
+          `Working directory: ${ctx.workingDirectory}`,
+        ].filter(Boolean).join('\n');
+
+        const options = [
+          { id: 'allow_once', label: 'Allow once (Recommended)', description: 'Run this tool a single time.' },
+          { id: 'allow_session', label: 'Allow for session', description: 'Auto-allow this tool for this instance/session.' },
+          { id: 'allow_always', label: 'Always allow', description: 'Auto-allow this tool in the future (non-persistent today).' },
+          { id: 'deny_once', label: 'Deny once', description: 'Do not run this tool this time.' },
+          { id: 'deny_session', label: 'Deny for session', description: 'Auto-deny this tool for this instance/session.' },
+          { id: 'deny_always', label: 'Always deny', description: 'Auto-deny this tool in the future (non-persistent today).' },
+        ];
+
+        const { selectedOption } = await this.requestUserDecision({
+          instanceId,
+          title: 'Tool Permission Required',
+          message,
+          options,
+          context: {
+            suppressInjectResponse: true,
+            permission: {
+              scope: permissionRequest.scope,
+              resource: permissionRequest.resource,
+            },
+          },
+        });
+
+        if (!selectedOption) {
+          this.injectResponse(instanceId, 'call_tool', false, {
+            toolId: command.toolId,
+            error: `Permission request timed out for tool "${command.toolId}"`,
+          });
+          return;
+        }
+
+        const isAllow = selectedOption.startsWith('allow_');
+        const scope = selectedOption.endsWith('_always')
+          ? 'always'
+          : selectedOption.endsWith('_session')
+            ? 'session'
+            : 'once';
+
+        permissionManager.recordUserDecision(
+          instanceId,
+          permissionRequest,
+          isAllow ? 'allow' : 'deny',
+          scope
+        );
+
+        if (!isAllow) {
+          this.injectResponse(instanceId, 'call_tool', false, {
+            toolId: command.toolId,
+            error: `Permission denied for tool "${command.toolId}"`,
+            scope,
+          });
+          return;
+        }
+      }
+
+      const registry = getToolRegistry();
+      const result = await registry.callTool({
+        toolId: command.toolId,
+        args: command.args,
+        ctx: { instanceId, workingDirectory: ctx.workingDirectory },
+      });
+
+      this.injectResponse(instanceId, 'call_tool', result.ok, {
+        toolId: command.toolId,
+        ...result,
+      });
+    } catch (error) {
+      this.injectResponse(instanceId, 'call_tool', false, {
+        toolId: command.toolId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -513,17 +779,31 @@ export class OrchestrationHandler extends EventEmitter {
       return;
     }
 
+    // Resolve any internal waiter first (tool permission gating, etc.).
+    const waiter = this.userActionWaiters.get(requestId);
+    if (waiter) {
+      this.userActionWaiters.delete(requestId);
+      try {
+        waiter(approved, selectedOption);
+      } catch {
+        // ignore
+      }
+    }
+
     // Remove from pending
     this.pendingUserActions.delete(requestId);
 
-    // Send response back to the instance
-    this.injectResponse(request.instanceId, 'user_action_response', true, {
-      requestId,
-      approved,
-      selectedOption,
-      requestType: request.requestType,
-      targetMode: request.targetMode
-    });
+    const suppressInject = Boolean(request.context && (request.context as any)['suppressInjectResponse']);
+    if (!suppressInject) {
+      // Send response back to the instance
+      this.injectResponse(request.instanceId, 'user_action_response', true, {
+        requestId,
+        approved,
+        selectedOption,
+        requestType: request.requestType,
+        targetMode: request.targetMode
+      });
+    }
 
     console.log(`Orchestrator: User action ${requestId} ${approved ? 'approved' : 'rejected'}`);
   }
@@ -600,16 +880,77 @@ export class OrchestrationHandler extends EventEmitter {
   }
 
   /**
-   * Notify parent about a child termination
+   * Notify parent about a child termination.
+   * Moves the child from active to completed set and injects result data
+   * into the parent CLI so the parent Claude can see what the child found.
+   * Returns the number of remaining active children.
    */
-  notifyChildTerminated(parentId: string, childId: string): void {
+  notifyChildTerminated(
+    parentId: string,
+    childId: string,
+    resultData?: { name: string; summary: string; success: boolean; conclusions: string[] }
+  ): ChildTerminationResult {
     const ctx = this.contexts.get(parentId);
     if (ctx) {
       ctx.childrenIds = ctx.childrenIds.filter((id) => id !== childId);
     }
-    this.injectResponse(parentId, 'terminate_child', true, {
+
+    // Move to completed set so queries still work after termination
+    if (!this.completedChildrenIds.has(parentId)) {
+      this.completedChildrenIds.set(parentId, new Set());
+    }
+    this.completedChildrenIds.get(parentId)!.add(childId);
+
+    // Inject rich result data (not just "terminated") so parent Claude sees findings
+    const responseData: Record<string, unknown> = {
       childId,
-      message: 'Child instance terminated'
+      message: resultData
+        ? `Child "${resultData.name}" completed: ${resultData.summary}`
+        : 'Child instance terminated'
+    };
+    if (resultData) {
+      responseData['name'] = resultData.name;
+      responseData['summary'] = resultData.summary;
+      responseData['success'] = resultData.success;
+      responseData['conclusions'] = resultData.conclusions;
+    }
+
+    this.injectResponse(parentId, 'child_completed', true, responseData);
+
+    const remainingChildren = ctx ? ctx.childrenIds.length : 0;
+    return { remainingChildren };
+  }
+
+  /**
+   * Notify parent that ALL children have completed, injecting a synthesis
+   * prompt so the parent Claude creates a comprehensive report.
+   */
+  notifyAllChildrenCompleted(
+    parentId: string,
+    childSummaries: CompletedChildSummary[]
+  ): void {
+    const summaryLines = childSummaries.map((cs) => {
+      const statusLabel = cs.success ? 'SUCCESS' : 'FAILED';
+      const conclusionLines = cs.conclusions.length > 0
+        ? cs.conclusions.map(c => `    - ${c}`).join('\n')
+        : '    (no conclusions reported)';
+      return `  [${statusLabel}] ${cs.name} (${cs.childId}):\n    Summary: ${cs.summary}\n    Conclusions:\n${conclusionLines}`;
+    });
+
+    const synthesisPrompt = [
+      `All ${childSummaries.length} child instances have completed.`,
+      '',
+      'Results:',
+      ...summaryLines,
+      '',
+      'Please synthesize these results into a comprehensive report for the user.',
+      'Highlight key findings, any failures, and recommended next steps.'
+    ].join('\n');
+
+    this.injectResponse(parentId, 'all_children_completed', true, {
+      totalChildren: childSummaries.length,
+      summaries: childSummaries,
+      message: synthesisPrompt
     });
   }
 
@@ -698,8 +1039,8 @@ export class OrchestrationHandler extends EventEmitter {
     const ctx = this.contexts.get(parentId);
     if (!ctx) return;
 
-    // Verify the child belongs to this parent
-    if (!ctx.childrenIds.includes(command.childId)) {
+    // Verify the child belongs to this parent (active or completed)
+    if (!this.isChildOfParent(parentId, command.childId)) {
       this.injectResponse(parentId, 'get_child_summary', false, {
         error: `Child ${command.childId} not found or not owned by you`
       });
@@ -735,8 +1076,8 @@ export class OrchestrationHandler extends EventEmitter {
     const ctx = this.contexts.get(parentId);
     if (!ctx) return;
 
-    // Verify the child belongs to this parent
-    if (!ctx.childrenIds.includes(command.childId)) {
+    // Verify the child belongs to this parent (active or completed)
+    if (!this.isChildOfParent(parentId, command.childId)) {
       this.injectResponse(parentId, 'get_child_artifacts', false, {
         error: `Child ${command.childId} not found or not owned by you`
       });
@@ -770,8 +1111,8 @@ export class OrchestrationHandler extends EventEmitter {
     const ctx = this.contexts.get(parentId);
     if (!ctx) return;
 
-    // Verify the child belongs to this parent
-    if (!ctx.childrenIds.includes(command.childId)) {
+    // Verify the child belongs to this parent (active or completed)
+    if (!this.isChildOfParent(parentId, command.childId)) {
       this.injectResponse(parentId, 'get_child_section', false, {
         error: `Child ${command.childId} not found or not owned by you`
       });

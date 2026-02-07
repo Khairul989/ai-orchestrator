@@ -29,6 +29,7 @@ import { TodoListComponent } from './todo-list.component';
 import { UserActionRequestComponent } from './user-action-request.component';
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
+import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 
 @Component({
   selector: 'app-instance-detail',
@@ -43,7 +44,8 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
     TodoListComponent,
     UserActionRequestComponent,
     InstanceHeaderComponent,
-    InstanceWelcomeComponent
+    InstanceWelcomeComponent,
+    InstanceReviewPanelComponent
   ],
   template: `
     @if (instance(); as inst) {
@@ -86,6 +88,12 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
 
           <!-- TODO list -->
           <app-todo-list [sessionId]="inst.sessionId" />
+
+          <!-- Review panel -->
+          <app-instance-review-panel
+            [instanceId]="inst.id"
+            [workingDirectory]="inst.workingDirectory"
+          />
 
           <!-- Output stream -->
           <div class="output-section">

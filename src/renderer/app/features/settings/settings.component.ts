@@ -11,12 +11,14 @@ import { DisplaySettingsTabComponent } from './display-settings-tab.component';
 import { AdvancedSettingsTabComponent } from './advanced-settings-tab.component';
 import { KeyboardSettingsTabComponent } from './keyboard-settings-tab.component';
 import { PermissionsSettingsTabComponent } from './permissions-settings-tab.component';
+import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.component';
 
 type SettingsTab =
   | 'general'
   | 'orchestration'
   | 'memory'
   | 'display'
+  | 'ecosystem'
   | 'permissions'
   | 'advanced'
   | 'keyboard';
@@ -29,6 +31,7 @@ type SettingsTab =
     OrchestrationSettingsTabComponent,
     MemorySettingsTabComponent,
     DisplaySettingsTabComponent,
+    EcosystemSettingsTabComponent,
     AdvancedSettingsTabComponent,
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent
@@ -85,6 +88,13 @@ type SettingsTab =
             </button>
             <button
               class="tab"
+              [class.active]="activeTab === 'ecosystem'"
+              (click)="activeTab =('ecosystem')"
+            >
+              Ecosystem
+            </button>
+            <button
+              class="tab"
               [class.active]="activeTab === 'permissions'"
               (click)="activeTab =('permissions')"
             >
@@ -120,6 +130,9 @@ type SettingsTab =
               }
               @case ('display') {
                 <app-display-settings-tab />
+              }
+              @case ('ecosystem') {
+                <app-ecosystem-settings-tab />
               }
               @case ('permissions') {
                 <app-permissions-settings-tab />

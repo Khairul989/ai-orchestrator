@@ -40,7 +40,8 @@ import {
   registerFileHandlers,
   registerCodebaseHandlers,
   registerSupervisionHandlers,
-  registerRecentDirectoriesHandlers
+  registerRecentDirectoriesHandlers,
+  registerEcosystemHandlers
 } from './handlers';
 
 export class IpcMainHandler {
@@ -221,7 +222,10 @@ export class IpcMainHandler {
     registerCodebaseHandlers(this.windowManager);
 
     // Orchestration handlers (Phase 6: Workflows, Hooks, Skills)
-    registerOrchestrationHandlers();
+    registerOrchestrationHandlers(this.instanceManager);
+
+    // Ecosystem handlers (file-based commands/agents/tools/plugins)
+    registerEcosystemHandlers(this.instanceManager);
 
     // User action request handlers (orchestrator -> user communication)
     this.registerUserActionHandlers();

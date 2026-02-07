@@ -73,6 +73,19 @@ export interface UserActionRequest {
               </div>
             } @else {
               <div class="request-actions">
+                @if (request.requestType === 'input_required') {
+                  <select
+                    class="scope-select"
+                    [value]="getInputRequiredScope(request.id)"
+                    (change)="onInputRequiredScopeChange(request.id, $event)"
+                    [disabled]="isResponding()"
+                    title="Remember this decision"
+                  >
+                    <option value="once">Once</option>
+                    <option value="session">Session</option>
+                    <option value="always">Always</option>
+                  </select>
+                }
                 <button
                   class="btn-reject"
                   (click)="onReject(request)"
@@ -191,6 +204,16 @@ export interface UserActionRequest {
         display: flex;
         gap: var(--spacing-sm);
         justify-content: flex-end;
+        align-items: center;
+      }
+
+      .scope-select {
+        padding: 6px 8px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 12px;
       }
 
       .request-options {
@@ -303,6 +326,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   pendingRequests = signal<UserActionRequest[]>([]);
   isResponding = signal(false);
+
+  private inputRequiredScopes = new Map<string, 'once' | 'session' | 'always'>();
 
   private unsubscribeUserAction: (() => void) | null = null;
   private unsubscribeInputRequired: (() => void) | null = null;
@@ -455,6 +480,16 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     }
   }
 
+  getInputRequiredScope(requestId: string): 'once' | 'session' | 'always' {
+    return this.inputRequiredScopes.get(requestId) || 'once';
+  }
+
+  onInputRequiredScopeChange(requestId: string, event: Event): void {
+    const target = event.target as HTMLSelectElement;
+    const val = (target.value as 'once' | 'session' | 'always') || 'once';
+    this.inputRequiredScopes.set(requestId, val);
+  }
+
   async onApprove(request: UserActionRequest): Promise<void> {
     await this.respond(request, true);
   }
@@ -502,6 +537,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         const meta = request.permissionMetadata;
         // Create permission key to clear pending permission tracking
         const permissionKey = meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
+        const decisionScope = this.getInputRequiredScope(request.id);
+        const decisionAction = approved ? 'allow' : 'deny';
 
         if (approved) {
           // Construct a helpful retry message based on the permission metadata
@@ -522,10 +559,13 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           request.instanceId,
           request.id,
           response,
-          permissionKey
+          permissionKey,
+          decisionAction,
+          decisionScope
         );
 
         if (result.success) {
+          this.inputRequiredScopes.delete(request.id);
           this.pendingRequests.update((requests) =>
             requests.filter((r) => r.id !== request.id)
           );

@@ -758,13 +758,17 @@ const electronAPI = {
     instanceId: string,
     requestId: string,
     response: string,
-    permissionKey?: string
+    permissionKey?: string,
+    decisionAction?: 'allow' | 'deny',
+    decisionScope?: 'once' | 'session' | 'always'
   ): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
       instanceId,
       requestId,
       response,
-      permissionKey
+      permissionKey,
+      decisionAction,
+      decisionScope
     });
   },
 

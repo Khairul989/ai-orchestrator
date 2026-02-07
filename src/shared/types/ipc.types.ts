@@ -49,7 +49,15 @@ export const IPC_CHANNELS = {
   IMAGE_PASTE: 'image:paste',
   FILE_READ_DIR: 'file:read-dir',
   FILE_GET_STATS: 'file:get-stats',
+  FILE_READ_TEXT: 'file:read-text',
+  FILE_WRITE_TEXT: 'file:write-text',
   FILE_OPEN_PATH: 'file:open-path',
+
+  // Ecosystem operations (file-based extensibility)
+  ECOSYSTEM_LIST: 'ecosystem:list',
+  ECOSYSTEM_WATCH_START: 'ecosystem:watch-start',
+  ECOSYSTEM_WATCH_STOP: 'ecosystem:watch-stop',
+  ECOSYSTEM_CHANGED: 'ecosystem:changed',
 
   // App operations
   APP_READY: 'app:ready',
@@ -1496,6 +1504,30 @@ export interface FileGetStatsPayload {
   path: string;
 }
 
+export interface FileReadTextPayload {
+  path: string;
+  /** Safety limit to prevent the renderer from loading huge files (default applied in main). */
+  maxBytes?: number;
+}
+
+export interface FileReadTextResult {
+  path: string;
+  content: string;
+  truncated: boolean;
+  size: number;
+}
+
+export interface FileWriteTextPayload {
+  path: string;
+  content: string;
+  createDirs?: boolean;
+}
+
+export interface FileWriteTextResult {
+  path: string;
+  bytesWritten: number;
+}
+
 // ============================================
 // Structured Logging Payloads (13.1)
 // ============================================
@@ -1718,6 +1750,22 @@ export interface ReviewAcknowledgeIssuePayload {
   sessionId: string;
   issueId: string;
   acknowledged: boolean;
+}
+
+// ============================================
+// Ecosystem Payloads (Commands/Agents/Tools/Plugins)
+// ============================================
+
+export interface EcosystemListPayload {
+  workingDirectory: string;
+}
+
+export interface EcosystemWatchStartPayload {
+  workingDirectory: string;
+}
+
+export interface EcosystemWatchStopPayload {
+  workingDirectory: string;
 }
 
 // ============================================

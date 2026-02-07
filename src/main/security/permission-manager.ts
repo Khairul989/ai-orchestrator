@@ -13,6 +13,7 @@
 
 import { EventEmitter } from 'events';
 import * as path from 'path';
+import * as fs from 'fs';
 
 /**
  * Permission action types
@@ -147,6 +148,12 @@ export interface RuleSet {
   source: RuleSource;
   rules: PermissionRule[];
   enabled: boolean;
+}
+
+interface PersistedPermissionFileV1 {
+  version: 1;
+  updatedAt: number;
+  ruleSet: RuleSet;
 }
 
 /**
@@ -306,11 +313,13 @@ export class PermissionManager extends EventEmitter {
   private ruleSets: Map<string, RuleSet> = new Map();
   private decisionCache: Map<string, CachedDecision> = new Map();
   private sessionRules: Map<string, PermissionRule[]> = new Map(); // Per-session rules
+  private loadedProjectRuleRoots: Set<string> = new Set();
 
   private constructor() {
     super();
     this.config = { ...DEFAULT_PERMISSION_CONFIG };
     this.initializeSystemRules();
+    this.loadUserRulesFromDisk();
     this.startCacheCleanup();
   }
 
@@ -557,6 +566,7 @@ export class PermissionManager extends EventEmitter {
           source: 'user',
           enabled: true,
         });
+        this.persistUserRulesToDisk();
         break;
     }
 
@@ -566,6 +576,58 @@ export class PermissionManager extends EventEmitter {
       action,
       scope,
     });
+  }
+
+  /**
+   * Ensure project rules are loaded for a working directory.
+   * Reads `<workingDirectory>/.orchestrator/permissions.json` if present.
+   */
+  loadProjectRules(workingDirectory: string): void {
+    const normalized = (workingDirectory || '').trim();
+    if (!normalized) return;
+    if (this.loadedProjectRuleRoots.has(normalized)) return;
+    this.loadedProjectRuleRoots.add(normalized);
+
+    const filePath = path.join(normalized, '.orchestrator', 'permissions.json');
+    let raw: string;
+    try {
+      if (!fs.existsSync(filePath)) return;
+      raw = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return;
+    }
+
+    let parsed: PersistedPermissionFileV1;
+    try {
+      parsed = JSON.parse(raw) as PersistedPermissionFileV1;
+    } catch {
+      return;
+    }
+
+    if (!parsed || parsed.version !== 1 || !parsed.ruleSet) return;
+    const incoming = parsed.ruleSet;
+
+    // Namespace the rule set id so multiple projects can coexist.
+    const ruleSetId = `project:${this.hashId(normalized)}`;
+    const ruleSet: RuleSet = {
+      id: ruleSetId,
+      name: incoming.name || `Project Rules (${normalized})`,
+      source: 'project',
+      enabled: Boolean(incoming.enabled),
+      rules: (incoming.rules || []).map((r) => ({
+        ...r,
+        source: 'project',
+        // Ensure project rules only apply to this working directory.
+        conditions: [
+          ...(r.conditions || []),
+          { type: 'working_directory', operator: 'starts_with', value: normalized },
+        ],
+      })),
+    };
+
+    this.ruleSets.set(ruleSetId, ruleSet);
+    this.invalidateCache();
+    this.emit('ruleset:loaded', { id: ruleSetId, filePath });
   }
 
   /**
@@ -619,6 +681,94 @@ export class PermissionManager extends EventEmitter {
   // ============================================
   // Private Methods
   // ============================================
+
+  private getHomeDir(): string | null {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { app } = require('electron');
+      return app.getPath('home');
+    } catch {
+      return process.env['HOME'] || process.env['USERPROFILE'] || null;
+    }
+  }
+
+  private getUserRulesFilePath(): string | null {
+    const home = this.getHomeDir();
+    if (!home) return null;
+    return path.join(home, '.orchestrator', 'permissions.json');
+  }
+
+  private loadUserRulesFromDisk(): void {
+    const filePath = this.getUserRulesFilePath();
+    if (!filePath) return;
+
+    let raw: string;
+    try {
+      if (!fs.existsSync(filePath)) return;
+      raw = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return;
+    }
+
+    let parsed: PersistedPermissionFileV1;
+    try {
+      parsed = JSON.parse(raw) as PersistedPermissionFileV1;
+    } catch {
+      return;
+    }
+
+    if (!parsed || parsed.version !== 1 || !parsed.ruleSet) return;
+    const rs = parsed.ruleSet;
+    if (rs.source !== 'user') return;
+
+    const userRuleSet: RuleSet = {
+      id: 'user',
+      name: rs.name || 'User Rules',
+      source: 'user',
+      enabled: Boolean(rs.enabled ?? true),
+      rules: (rs.rules || []).map((r) => ({ ...r, source: 'user' })),
+    };
+
+    this.ruleSets.set('user', userRuleSet);
+    this.invalidateCache();
+    this.emit('ruleset:loaded', { id: 'user', filePath });
+  }
+
+  private persistUserRulesToDisk(): void {
+    const filePath = this.getUserRulesFilePath();
+    if (!filePath) return;
+
+    const user = this.ruleSets.get('user');
+    if (!user) return;
+
+    const dir = path.dirname(filePath);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // ignore
+    }
+
+    const payload: PersistedPermissionFileV1 = {
+      version: 1,
+      updatedAt: Date.now(),
+      ruleSet: user,
+    };
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+    } catch {
+      // ignore
+    }
+  }
+
+  private hashId(input: string): string {
+    // Lightweight, stable-ish hash for ids (not security).
+    let h = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+      h ^= input.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16);
+  }
 
   private initializeSystemRules(): void {
     const systemRuleSet: RuleSet = {

@@ -28,7 +28,7 @@ export interface CommunicationDependencies {
   queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage) => void;
   processOrchestrationOutput: (instanceId: string, content: string) => void;
   onInterruptedExit: (instanceId: string) => Promise<void>;
-  onChildExit?: (childId: string, instance: Instance, exitCode: number | null) => void;
+  onChildExit?: (childId: string, instance: Instance, exitCode: number | null) => void | Promise<void>;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
   compactContext?: (instanceId: string) => Promise<void>;
@@ -59,6 +59,12 @@ export class InstanceCommunicationManager extends EventEmitter {
 
   // Circuit breaker state per instance
   private circuitBreakers = new Map<string, CircuitBreakerState>();
+
+  // Context overflow failsafe tracking
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private lastSentMessages = new Map<string, { message: string; attachments?: any[]; contextBlock?: string | null }>();
+  private contextWarningIssued = new Set<string>();
+  private contextOverflowRetried = new Set<string>();
 
   constructor(deps: CommunicationDependencies) {
     super();
@@ -154,6 +160,9 @@ export class InstanceCommunicationManager extends EventEmitter {
    */
   cleanupCircuitBreaker(instanceId: string): void {
     this.circuitBreakers.delete(instanceId);
+    this.lastSentMessages.delete(instanceId);
+    this.contextWarningIssued.delete(instanceId);
+    this.contextOverflowRetried.delete(instanceId);
   }
 
   // ============================================
@@ -203,6 +212,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.deps.queueUpdate(instanceId, 'error');
       throw new Error(`Instance ${instanceId} is in an inconsistent state (no adapter). Please restart the instance.`);
     }
+
+    // Track last sent message for retry-after-compaction
+    this.lastSentMessages.set(instanceId, { message, attachments, contextBlock });
 
     const finalMessage = contextBlock ? `${contextBlock}\n\n${message}` : message;
 
@@ -262,6 +274,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         // Check circuit breaker for assistant messages
         if (message.type === 'assistant') {
           const hasContent = !!(message.content && message.content.trim());
+          // Successful response means overflow retry worked — allow future retries
+          if (hasContent) {
+            this.contextOverflowRetried.delete(instanceId);
+          }
           const circuitOk = this.recordResponse(instanceId, hasContent);
 
           if (!circuitOk) {
@@ -367,6 +383,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         instance.contextUsage = usage;
         instance.totalTokensUsed = usage.used;
         this.deps.queueUpdate(instanceId, instance.status, usage);
+        this.checkContextWarningThreshold(instanceId, instance, usage, adapter);
       }
     });
 
@@ -413,18 +430,77 @@ export class InstanceCommunicationManager extends EventEmitter {
               await this.deps.compactContext(instanceId);
               console.log(`[InstanceCommunicationManager] Context compaction completed for ${instanceId}`);
 
-              // Add success message
-              const successMessage: OutputMessage = {
+              // Reset warning so it can fire again after compaction
+              this.contextWarningIssued.delete(instanceId);
+
+              // Check if we already retried once — prevent infinite loop
+              if (this.contextOverflowRetried.has(instanceId)) {
+                console.warn(`[InstanceCommunicationManager] Already retried after overflow for ${instanceId}, skipping retry`);
+                const idleMessage: OutputMessage = {
+                  id: generateId(),
+                  timestamp: Date.now(),
+                  type: 'system',
+                  content: 'Context compacted. Please delegate large file reads to child instances and try again.',
+                  metadata: { contextCompacted: true }
+                };
+                this.addToOutputBuffer(instance, idleMessage);
+                this.emit('output', { instanceId, message: idleMessage });
+                instance.status = 'idle';
+                this.deps.queueUpdate(instanceId, 'idle');
+                return;
+              }
+
+              // Attempt retry with delegation guidance
+              const lastMsg = this.lastSentMessages.get(instanceId);
+              const retryAdapter = this.deps.getAdapter(instanceId);
+              if (lastMsg && retryAdapter) {
+                this.contextOverflowRetried.add(instanceId);
+
+                const delegationGuidance = [
+                  '[SYSTEM: Context Overflow Recovery]',
+                  'Your context overflowed and has been compacted. To prevent this from happening again:',
+                  '1. Do NOT read large files directly — spawn child instances for file reading.',
+                  '2. Use get_child_summary instead of get_child_output for results.',
+                  '3. Summarize rather than copying full file contents.',
+                  'Your previous message is being retried. Follow the guidance above.',
+                  '[END SYSTEM]'
+                ].join('\n');
+
+                const retryMessage = lastMsg.contextBlock
+                  ? `${lastMsg.contextBlock}\n\n${delegationGuidance}\n\n${lastMsg.message}`
+                  : `${delegationGuidance}\n\n${lastMsg.message}`;
+
+                const successMessage: OutputMessage = {
+                  id: generateId(),
+                  timestamp: Date.now(),
+                  type: 'system',
+                  content: 'Context compacted and message retried with delegation guidance.',
+                  metadata: { contextCompacted: true, retrying: true }
+                };
+                this.addToOutputBuffer(instance, successMessage);
+                this.emit('output', { instanceId, message: successMessage });
+
+                instance.status = 'busy';
+                this.deps.queueUpdate(instanceId, 'busy');
+
+                retryAdapter.sendInput(retryMessage, lastMsg.attachments).catch(retryErr => {
+                  console.error(`[InstanceCommunicationManager] Retry after compaction failed for ${instanceId}:`, retryErr);
+                  instance.status = 'idle';
+                  this.deps.queueUpdate(instanceId, 'idle');
+                });
+                return;
+              }
+
+              // No stored message or adapter — fall back to idle
+              const fallbackMessage: OutputMessage = {
                 id: generateId(),
                 timestamp: Date.now(),
                 type: 'system',
-                content: 'Context compacted. You can continue the conversation.',
+                content: 'Context compacted. Please delegate large file reads to child instances and try again.',
                 metadata: { contextCompacted: true }
               };
-              this.addToOutputBuffer(instance, successMessage);
-              this.emit('output', { instanceId, message: successMessage });
-
-              // Don't mark as error - let user retry
+              this.addToOutputBuffer(instance, fallbackMessage);
+              this.emit('output', { instanceId, message: fallbackMessage });
               instance.status = 'idle';
               this.deps.queueUpdate(instanceId, 'idle');
               return;
@@ -602,6 +678,55 @@ export class InstanceCommunicationManager extends EventEmitter {
     // Ingest to context systems
     this.deps.ingestToRLM(instance.id, message);
     this.deps.ingestToUnifiedMemory(instance, message);
+  }
+
+  // ============================================
+  // Context Overflow Failsafe
+  // ============================================
+
+  /**
+   * Check if context usage has crossed the warning threshold and send delegation guidance
+   */
+  private checkContextWarningThreshold(
+    instanceId: string,
+    instance: Instance,
+    usage: ContextUsage,
+    adapter: CliAdapter
+  ): void {
+    // Skip if already warned
+    if (this.contextWarningIssued.has(instanceId)) return;
+    // Skip child instances — they don't spawn children
+    if (instance.parentId !== null) return;
+    // Skip if not busy
+    if (instance.status !== 'busy') return;
+    // Skip if under threshold
+    if (usage.percentage < 80) return;
+
+    this.contextWarningIssued.add(instanceId);
+
+    const warningMessage: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: `Context usage at ${usage.percentage}% (${usage.used} / ${usage.total} tokens). Sending delegation guidance.`,
+      metadata: { contextWarning: true }
+    };
+    this.addToOutputBuffer(instance, warningMessage);
+    this.emit('output', { instanceId, message: warningMessage });
+
+    const guidance = [
+      '[SYSTEM: Context Usage Warning]',
+      `Your context is at ${usage.percentage}% capacity (${usage.used} / ${usage.total} tokens).`,
+      'To avoid hitting the limit:',
+      '1. Do NOT read large files directly — spawn child instances for file reading.',
+      '2. Use get_child_summary instead of get_child_output for results.',
+      '3. Summarize rather than copying full file contents.',
+      '[END SYSTEM WARNING]'
+    ].join('\n');
+
+    adapter.sendInput(guidance).catch(err => {
+      console.error(`[InstanceCommunicationManager] Failed to send context warning to ${instanceId}:`, err);
+    });
   }
 
   // ============================================

@@ -28,7 +28,7 @@ import {
   loadSession,
   getRuns,
 } from './result-storage.js';
-import { scoreKnownAnswer, hasGroundTruth } from './scorer.js';
+import { scoreKnownAnswer, hasGroundTruth, scoreNiah, niahScoreToCorrectness } from './scorer.js';
 import { evaluateWithJudges, calculateAgreementStats } from './judge.js';
 import type {
   BenchmarkTask,
@@ -447,6 +447,8 @@ async function scoreSession(sessionId: string, tasks: BenchmarkTask[]): Promise<
 
     if (task.category === 'known-answer') {
       await scoreKnownAnswerTask(sessionId, task);
+    } else if (task.category === 'niah') {
+      await scoreNiahTask(sessionId, task);
     } else {
       await scoreRealCodebaseTask(sessionId, task);
     }
@@ -482,6 +484,42 @@ async function scoreKnownAnswerTask(sessionId: string, task: BenchmarkTask): Pro
           run.knownAnswerScore = score;
           saveRun(sessionId, run);
           console.log(`  [SCORED] ${system}/${stage}/run${run.runNumber}: ${score.correctness}%`);
+        } catch (e) {
+          console.error(`  [ERROR] ${system}/${stage}/run${run.runNumber}: ${e}`);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Score a NIAH task using deterministic needle retrieval checks
+ */
+async function scoreNiahTask(sessionId: string, task: BenchmarkTask): Promise<void> {
+  for (const stage of CONTEXT_STAGES) {
+    for (const system of SYSTEMS) {
+      const runs = getRuns(sessionId, task.id, system, stage);
+
+      for (const run of runs) {
+        if (run.niahScore) {
+          console.log(`  [SKIP] ${system}/${stage}/run${run.runNumber} - already scored`);
+          continue;
+        }
+
+        if (!run.output || run.error) {
+          console.log(`  [SKIP] ${system}/${stage}/run${run.runNumber} - no valid output`);
+          continue;
+        }
+
+        try {
+          const score = scoreNiah(task, run.output);
+          run.niahScore = score;
+          saveRun(sessionId, run);
+          const correctness = niahScoreToCorrectness(score);
+          const reasoning = score.reasoningCorrect !== undefined
+            ? ` reasoning=${score.reasoningCorrect ? 'YES' : 'NO'}`
+            : '';
+          console.log(`  [SCORED] ${system}/${stage}/run${run.runNumber}: ${correctness}% retrieval${reasoning}`);
         } catch (e) {
           console.error(`  [ERROR] ${system}/${stage}/run${run.runNumber}: ${e}`);
         }
@@ -565,8 +603,8 @@ async function executeBenchmarkRun(
   const startedAt = Date.now();
   const cwd = workingDirectory || resolve(task.workingDirectory);
 
-  // Generate context for this stage
-  const contextResult = generateContext(contextStage, cwd);
+  // Generate context for this stage (with needles for NIAH tasks)
+  const contextResult = generateContext(contextStage, cwd, task.needles);
   const contextMessages = contextMessagesToStrings(contextResult.messages);
 
   // Create a modified task with the isolated working directory

@@ -89,7 +89,7 @@ function validateTask(task: BenchmarkTask): void {
     }
   }
 
-  const validCategories = ['known-answer', 'real-codebase'];
+  const validCategories = ['known-answer', 'real-codebase', 'niah'];
   if (!validCategories.includes(task.category)) {
     throw new Error(`Task ${task.id} has invalid category: ${task.category}`);
   }
