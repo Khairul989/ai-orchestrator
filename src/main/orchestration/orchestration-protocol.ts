@@ -120,7 +120,8 @@ export type UserActionRequestType =
   | 'switch_mode'      // Request to switch from plan to build mode (or vice versa)
   | 'approve_action'   // Request approval for a specific action
   | 'confirm'          // Generic confirmation request
-  | 'select_option';   // Request user to select from options
+  | 'select_option'    // Request user to select from options
+  | 'ask_questions';   // Ask user free-form questions (renders text inputs)
 
 /**
  * Request user action command - asks the user to approve/confirm something
@@ -141,6 +142,8 @@ export interface RequestUserActionCommand {
     label: string;
     description?: string;
   }>;
+  /** For ask_questions: list of questions to ask the user (renders text inputs) */
+  questions?: string[];
   /** Additional context/metadata */
   context?: Record<string, unknown>;
 }
@@ -271,6 +274,11 @@ ${ORCHESTRATION_MARKER_END}
 **Request Approval:**
 ${ORCHESTRATION_MARKER_START}
 {"action": "request_user_action", "requestType": "approve_action", "title": "Confirm Action", "message": "Description of what you want to do"}
+${ORCHESTRATION_MARKER_END}
+
+**Ask User Questions (renders text inputs for each question):**
+${ORCHESTRATION_MARKER_START}
+{"action": "request_user_action", "requestType": "ask_questions", "title": "Clarifying Questions", "message": "I need some information before proceeding:", "questions": ["What framework should we use?", "What database do you prefer?"]}
 ${ORCHESTRATION_MARKER_END}
 
 **Model options:** \`${CLAUDE_MODELS.HAIKU}\`, \`${CLAUDE_MODELS.SONNET}\`, \`${CLAUDE_MODELS.OPUS}\`

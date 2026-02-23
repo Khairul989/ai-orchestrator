@@ -67,6 +67,8 @@ export interface UserActionRequest {
     label: string;
     description?: string;
   }>;
+  /** For ask_questions: list of questions to present with text inputs */
+  questions?: string[];
   context?: Record<string, unknown>;
   createdAt: number;
 }
@@ -752,6 +754,7 @@ export class OrchestrationHandler extends EventEmitter {
       message: command.message,
       targetMode: command.targetMode,
       options: command.options,
+      questions: command.questions,
       context: command.context,
       createdAt: Date.now()
     };
@@ -765,8 +768,11 @@ export class OrchestrationHandler extends EventEmitter {
     // Send acknowledgment back to Claude that the request was sent
     this.injectResponse(instanceId, 'request_user_action', true, {
       requestId,
+      requestType: command.requestType,
+      title: command.title,
+      message: command.message,
+      questions: command.questions,
       status: 'pending',
-      message: 'Request sent to user. Waiting for response...'
     });
 
     console.log(`Orchestrator: User action request ${requestId} created for instance ${instanceId}`);

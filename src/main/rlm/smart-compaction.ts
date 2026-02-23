@@ -159,6 +159,14 @@ export interface CachedCompactionPlan {
 }
 
 /**
+ * Result of observation masking pass
+ */
+export interface MaskingResult {
+  maskedCount: number;
+  tokensFreed: number;
+}
+
+/**
  * Compaction event
  */
 export type SmartCompactionEvent =
@@ -443,6 +451,9 @@ export class SmartCompactionManager extends EventEmitter {
     });
 
     try {
+      // Step 1: Mask stale tool outputs before any LLM summarization
+      this.maskStaleToolOutputs(session, this.config.clearToolOutputsAfterTurns);
+
       // Classify all content
       const classifications = this.classifyContent(session);
 
@@ -675,6 +686,60 @@ export class SmartCompactionManager extends EventEmitter {
       tier: classification.recommendedTier,
       items: 1,
     });
+  }
+
+  /**
+   * Mask stale tool outputs with a lightweight placeholder.
+   *
+   * Replaces tool outputs older than `turnsThreshold` turns with a compact
+   * placeholder string BEFORE any expensive LLM summarization runs. This is
+   * the first step in the token-optimization pipeline.
+   */
+  maskStaleToolOutputs(session: RLMSession, turnsThreshold: number): MaskingResult {
+    const totalQueries = session.queries.length;
+    const candidateUntil = totalQueries - turnsThreshold;
+
+    if (candidateUntil <= 0) {
+      return { maskedCount: 0, tokensFreed: 0 };
+    }
+
+    let maskedCount = 0;
+    let tokensFreed = 0;
+
+    for (let i = 0; i < candidateUntil; i++) {
+      const query = session.queries[i];
+      if (!query) continue;
+
+      // Identify tool outputs: explicit grep/get_section query types or result
+      // containing "Tool output:" (mirrors existing classifyContent heuristics).
+      const isToolOutput =
+        query.query.type === 'grep' ||
+        query.query.type === 'get_section' ||
+        query.result.includes('Tool output:');
+
+      if (!isToolOutput) continue;
+
+      const originalTokens = query.tokensUsed;
+      const toolName = (query.query.params['toolName'] as string | undefined) ?? query.query.type;
+      const placeholder = `[Tool output masked: ${toolName} at turn ${i} — ${originalTokens} tokens freed]`;
+
+      query.result = placeholder;
+      query.tokensUsed = this.tokenCounter.countTokens(placeholder);
+
+      tokensFreed += originalTokens - query.tokensUsed;
+      maskedCount++;
+    }
+
+    if (maskedCount > 0) {
+      this.emitEvent({
+        type: 'tool_outputs_cleared',
+        sessionId: session.id,
+        count: maskedCount,
+        tokensSaved: tokensFreed,
+      });
+    }
+
+    return { maskedCount, tokensFreed };
   }
 
   /**

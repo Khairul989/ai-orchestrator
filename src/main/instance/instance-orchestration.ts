@@ -991,9 +991,41 @@ export class InstanceOrchestrationManager {
         return this.formatChildArtifactsMessage(status, data);
       case 'get_child_section':
         return this.formatChildSectionMessage(status, data);
+      case 'request_user_action':
+        return this.formatRequestUserActionMessage(data);
+      case 'user_action_response':
+        return status === 'SUCCESS'
+          ? `**User responded** to "${data.requestType || 'request'}" — ${data.approved ? 'Approved' : 'Rejected'}${data.selectedOption ? `: ${data.selectedOption.slice(0, 200)}` : ''}`
+          : `**User action response failed**`;
       default:
         return `**Orchestration:** ${action} - ${status}`;
     }
+  }
+
+  private formatRequestUserActionMessage(data: any): string {
+    const title = data.title || 'User Action Required';
+    const message = data.message || '';
+    const questions = data.questions as string[] | undefined;
+
+    const parts: string[] = [];
+    parts.push(`**Awaiting your response** — ${title}`);
+
+    if (message) {
+      parts.push('');
+      parts.push(message);
+    }
+
+    if (questions && questions.length > 0) {
+      parts.push('');
+      questions.forEach((q: string, i: number) => {
+        parts.push(`${i + 1}. ${q}`);
+      });
+    }
+
+    parts.push('');
+    parts.push('_See the prompt below to respond._');
+
+    return parts.join('\n');
   }
 
   private formatChildResultMessage(data: any): string {

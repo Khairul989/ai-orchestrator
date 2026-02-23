@@ -18,7 +18,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 export interface UserActionRequest {
   id: string;
   instanceId: string;
-  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option' | 'input_required';
+  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option' | 'input_required' | 'ask_questions';
   title: string;
   message: string;
   targetMode?: 'build' | 'plan' | 'review';
@@ -27,6 +27,8 @@ export interface UserActionRequest {
     label: string;
     description?: string;
   }[];
+  /** For ask_questions: list of questions to present with text inputs */
+  questions?: string[];
   context?: Record<string, unknown>;
   createdAt: number;
   /** Permission metadata for input_required requests (action, path, etc.) */
@@ -56,7 +58,39 @@ export interface UserActionRequest {
             </div>
             <p class="request-message">{{ request.message }}</p>
 
-            @if (request.requestType === 'select_option' && request.options) {
+            @if (request.requestType === 'ask_questions' && request.questions) {
+              <!-- Ask questions: render text inputs for each question -->
+              <div class="questions-form">
+                @for (question of request.questions; track $index) {
+                  <label class="question-item">
+                    <span class="question-label">{{ question }}</span>
+                    <textarea
+                      class="question-input"
+                      rows="2"
+                      [placeholder]="'Type your answer...'"
+                      [disabled]="isResponding()"
+                      (input)="onQuestionAnswerChange(request.id, $index, $event)"
+                    ></textarea>
+                  </label>
+                }
+                <div class="request-actions">
+                  <button
+                    class="btn-reject"
+                    (click)="onReject(request)"
+                    [disabled]="isResponding()"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    class="btn-approve"
+                    (click)="onSubmitAnswers(request)"
+                    [disabled]="isResponding()"
+                  >
+                    Submit Answers
+                  </button>
+                </div>
+              </div>
+            } @else if (request.requestType === 'select_option' && request.options) {
               <div class="request-options">
                 @for (option of request.options; track option.id) {
                   <button
@@ -173,6 +207,11 @@ export interface UserActionRequest {
       .request-input_required {
         border-color: #ef4444;
         box-shadow: 0 4px 16px rgba(239, 68, 68, 0.2);
+      }
+
+      .request-ask_questions {
+        border-color: #8b5cf6;
+        box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
       }
 
       .request-header {
@@ -314,6 +353,58 @@ export interface UserActionRequest {
           box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.4);
         }
       }
+
+      /* Ask questions form styles */
+      .questions-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+      }
+
+      .question-item {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xs);
+        cursor: default;
+      }
+
+      .question-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.4;
+      }
+
+      .question-input {
+        width: 100%;
+        padding: var(--spacing-sm);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 14px;
+        font-family: inherit;
+        line-height: 1.5;
+        resize: vertical;
+        min-height: 40px;
+        box-sizing: border-box;
+        transition: border-color var(--transition-fast);
+
+        &:focus {
+          outline: none;
+          border-color: var(--primary-color);
+          box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.15);
+        }
+
+        &::placeholder {
+          color: var(--text-muted);
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      }
     `
   ],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -329,17 +420,25 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   private inputRequiredScopes = new Map<string, 'once' | 'session' | 'always'>();
 
+  /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
+  private questionAnswers = new Map<string, Map<number, string>>();
+
   private unsubscribeUserAction: (() => void) | null = null;
   private unsubscribeInputRequired: (() => void) | null = null;
 
   constructor() {
-    // Reload pending requests when instanceId changes
+    // Reload pending requests when instanceId changes.
+    // Filter (don't clear) to avoid losing events that arrive during async reload.
     effect(() => {
       const id = this.instanceId();
-      // Clear and reload when instance changes
-      this.pendingRequests.set([]);
       if (id) {
+        // Keep only requests matching the new instanceId; reload will merge server-side state
+        this.pendingRequests.update((requests) =>
+          requests.filter((r) => r.instanceId === id)
+        );
         this.loadPendingRequests();
+      } else {
+        this.pendingRequests.set([]);
       }
     });
 
@@ -369,7 +468,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
       // Only show requests for this instance (or all if no instanceId specified)
       if (!currentInstanceId || req.instanceId === currentInstanceId) {
-        this.pendingRequests.update((requests) => [...requests, req]);
+        // Deduplicate: skip if we already have this request ID
+        this.pendingRequests.update((requests) => {
+          if (requests.some((r) => r.id === req.id)) return requests;
+          return [...requests, req];
+        });
       }
     });
 
@@ -439,7 +542,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         : await this.ipc.listUserActionRequests();
 
       if (response.success && 'data' in response && response.data) {
-        this.pendingRequests.set(response.data as UserActionRequest[]);
+        const serverRequests = response.data as UserActionRequest[];
+        // Merge: use server list as base, but keep any locally-tracked requests
+        // that the server doesn't know about yet (e.g., input_required from IPC events)
+        this.pendingRequests.update((existing) => {
+          const serverIds = new Set(serverRequests.map((r) => r.id));
+          const localOnly = existing.filter((r) => !serverIds.has(r.id));
+          return [...serverRequests, ...localOnly];
+        });
       }
     } catch (error) {
       console.error('Failed to load pending user action requests:', error);
@@ -458,6 +568,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         return '📋';
       case 'input_required':
         return '🔐';
+      case 'ask_questions':
+        return '💬';
       default:
         return '📢';
     }
@@ -488,6 +600,39 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     const target = event.target as HTMLSelectElement;
     const val = (target.value as 'once' | 'session' | 'always') || 'once';
     this.inputRequiredScopes.set(requestId, val);
+  }
+
+  /**
+   * Track answer changes for ask_questions requests
+   */
+  onQuestionAnswerChange(requestId: string, questionIndex: number, event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    let answers = this.questionAnswers.get(requestId);
+    if (!answers) {
+      answers = new Map();
+      this.questionAnswers.set(requestId, answers);
+    }
+    answers.set(questionIndex, target.value);
+  }
+
+  /**
+   * Submit answers for an ask_questions request
+   */
+  async onSubmitAnswers(request: UserActionRequest): Promise<void> {
+    const answers = this.questionAnswers.get(request.id);
+    const questions = request.questions || [];
+
+    // Build answers object: { "Question text": "Answer text" }
+    const answersObj: Record<string, string> = {};
+    questions.forEach((q, i) => {
+      answersObj[q] = answers?.get(i) || '';
+    });
+
+    const answersJson = JSON.stringify(answersObj);
+    await this.respond(request, true, answersJson);
+
+    // Clean up answer tracking
+    this.questionAnswers.delete(request.id);
   }
 
   async onApprove(request: UserActionRequest): Promise<void> {

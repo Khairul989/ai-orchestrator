@@ -899,19 +899,29 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             output: 15.0
           };
 
-          const totalTokens = message.usage.total_tokens;
-          const estimatedInputTokens = Math.floor(totalTokens * 0.7);
-          const estimatedOutputTokens = totalTokens - estimatedInputTokens;
+          // input_tokens + output_tokens = actual context window usage
+          // total_tokens is a billing metric and doesn't reflect true context consumption
+          const inputTokens = message.usage.input_tokens || 0;
+          const outputTokens = message.usage.output_tokens || 0;
+          const totalUsedTokens = inputTokens + outputTokens;
 
-          const inputCost = (estimatedInputTokens / 1_000_000) * pricing.input;
-          const outputCost =
-            (estimatedOutputTokens / 1_000_000) * pricing.output;
+          const inputCost = (inputTokens / 1_000_000) * pricing.input;
+          const outputCost = (outputTokens / 1_000_000) * pricing.output;
           const costEstimate = inputCost + outputCost;
 
+          const contextWindow = message.usage.max_tokens || this.lastKnownContextWindow;
+          // Cache the context window for future streaming emissions
+          if (message.usage.max_tokens) {
+            this.lastKnownContextWindow = message.usage.max_tokens;
+          }
+          const percentage = contextWindow > 0
+            ? (totalUsedTokens / contextWindow) * 100
+            : 0;
+
           this.emit('context', {
-            used: message.usage.total_tokens,
-            total: message.usage.max_tokens,
-            percentage: message.usage.percentage,
+            used: totalUsedTokens,
+            total: contextWindow,
+            percentage: Math.min(percentage, 100),
             costEstimate
           });
         }
