@@ -625,17 +625,59 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             initialOutputBuffer: data.messages
           });
 
-          // Give the process a brief moment to fail if session ID is invalid.
-          // Claude CLI exits almost immediately on invalid --resume.
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Wait for a definitive signal rather than a fixed timeout.
+          // A successful --resume will report context usage > 0 (since there's
+          // an existing conversation). A failed --resume will cause the process
+          // to exit, setting status to 'error' or 'terminated'.
+          const RESUME_TIMEOUT_MS = 8000;
+          const POLL_INTERVAL_MS = 150;
 
-          // Check if the process is still alive
-          const currentInstance = instanceManager.getInstance(instance.id);
-          if (
-            currentInstance &&
-            currentInstance.status !== 'error' &&
-            currentInstance.status !== 'terminated'
-          ) {
+          const resumeAlive = await new Promise<boolean>((resolve) => {
+            const timeout = setTimeout(() => {
+              cleanup();
+              // Timeout with no signal — check final state
+              const inst = instanceManager.getInstance(instance.id);
+              const alive = !!inst && inst.status !== 'error' && inst.status !== 'terminated';
+              logger.warn('History restore: resume check timed out', {
+                instanceId: instance.id,
+                status: inst?.status,
+                contextUsed: inst?.contextUsage?.used,
+                alive
+              });
+              resolve(alive);
+            }, RESUME_TIMEOUT_MS);
+
+            const poll = setInterval(() => {
+              const inst = instanceManager.getInstance(instance.id);
+              if (!inst) {
+                // Instance was removed
+                cleanup();
+                resolve(false);
+                return;
+              }
+
+              // Definitive failure: process exited
+              if (inst.status === 'error' || inst.status === 'terminated') {
+                cleanup();
+                resolve(false);
+                return;
+              }
+
+              // Definitive success: CLI reported token usage from the resumed session
+              if (inst.contextUsage && inst.contextUsage.used > 0) {
+                cleanup();
+                resolve(true);
+                return;
+              }
+            }, POLL_INTERVAL_MS);
+
+            function cleanup() {
+              clearTimeout(timeout);
+              clearInterval(poll);
+            }
+          });
+
+          if (resumeAlive) {
             // Resume succeeded
             logger.info('History restore: CLI session resumed successfully', {
               instanceId: instance.id,
@@ -653,6 +695,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
           // Process died — fall through to fallback
           resumeFailed = true;
+          const currentInstance = instanceManager.getInstance(instance.id);
           logger.warn('History restore: CLI session resume failed, falling back to fresh instance', {
             instanceId: instance.id,
             sessionId: data.entry.sessionId,

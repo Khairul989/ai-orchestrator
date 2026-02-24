@@ -15,6 +15,31 @@ export class InstanceMessagingStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(ElectronIpcService);
   private listStore = inject(InstanceListStore);
+  private queueWatchdog: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    // Watchdog: periodically check for stuck queue items.
+    // The primary drain trigger is applyBatchUpdates on idle transitions,
+    // but timing/batching edge cases can leave messages stuck. This catches them.
+    this.queueWatchdog = setInterval(() => this.drainAllReadyQueues(), 2000);
+  }
+
+  /**
+   * Process queued messages for all instances that are currently idle.
+   * Acts as a safety net for cases where the primary drain trigger misses.
+   */
+  private drainAllReadyQueues(): void {
+    const queueMap = this.stateService.messageQueue();
+    if (queueMap.size === 0) return;
+
+    for (const [instanceId] of queueMap) {
+      const instance = this.stateService.getInstance(instanceId);
+      if (instance && (instance.status === 'idle' || instance.status === 'waiting_for_input')) {
+        console.log('InstanceMessagingStore: Watchdog draining stuck queue', { instanceId, status: instance.status });
+        this.processMessageQueue(instanceId);
+      }
+    }
+  }
 
   // ============================================
   // Message Queue Management
@@ -125,6 +150,12 @@ export class InstanceMessagingStore {
     message: string,
     files?: File[]
   ): Promise<void> {
+    // Drop truly empty messages (no text AND no files)
+    if (!message && (!files || files.length === 0)) {
+      console.log('InstanceMessagingStore: Dropping empty message (no text, no files)', { instanceId });
+      return;
+    }
+
     // Validate files first
     if (files && files.length > 0) {
       const validationErrors = this.listStore.validateFiles(files);
@@ -183,6 +214,14 @@ export class InstanceMessagingStore {
         this.stateService.updateInstance(instanceId, {
           status: 'idle' as InstanceStatus,
         });
+
+        // The local idle status set above won't generate a main process
+        // batch update, so processMessageQueue won't be re-triggered by the
+        // normal path. Schedule a retry so the re-queued message gets another
+        // chance once the instance is actually ready.
+        setTimeout(() => {
+          this.processMessageQueue(instanceId);
+        }, 2000);
       }
     }
   }

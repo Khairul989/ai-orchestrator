@@ -48,7 +48,7 @@ export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloa
 
 export const InstanceSendInputPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
-  message: z.string().min(1).max(500000), // 500KB max message
+  message: z.string().min(0).max(500000), // Allow empty string when attachments carry the content
   attachments: z.array(z.object({
     name: z.string().max(500),
     type: z.string().max(100),
