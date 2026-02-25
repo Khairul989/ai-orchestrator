@@ -194,17 +194,6 @@ export interface AttachmentDisplay {
       max-width: 250px;
     }
 
-    .message-user .file-attachment {
-      background: rgba(0, 0, 0, 0.25);
-      border-color: rgba(255, 255, 255, 0.2);
-      color: rgba(255, 255, 255, 0.95);
-    }
-
-    .message-user .file-attachment .file-name,
-    .message-user .file-attachment .file-size {
-      color: rgba(255, 255, 255, 0.95);
-    }
-
     .file-icon {
       font-size: 24px;
       flex-shrink: 0;

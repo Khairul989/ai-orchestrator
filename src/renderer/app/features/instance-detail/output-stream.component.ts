@@ -338,6 +338,22 @@ interface DisplayItem {
         }
       }
 
+      /* File attachment chip styling inside user messages */
+      :host ::ng-deep .message-user app-message-attachments .file-attachment {
+        background: rgba(0, 0, 0, 0.15);
+        border-color: rgba(0, 0, 0, 0.2);
+      }
+
+      :host ::ng-deep .message-user app-message-attachments .file-name,
+      :host ::ng-deep .message-user app-message-attachments .file-size {
+        color: #1a1a1a;
+      }
+
+      :host ::ng-deep .message-user app-message-attachments .file-attachment:hover {
+        background: rgba(0, 0, 0, 0.25);
+        border-color: rgba(0, 0, 0, 0.3);
+      }
+
       .message-assistant {
         background: var(--bg-tertiary);
         margin-right: var(--spacing-xl);
