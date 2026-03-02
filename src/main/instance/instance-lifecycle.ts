@@ -71,7 +71,11 @@ export interface LifecycleDependencies {
 }
 
 // MCP config file for spawned Claude CLI instances (LSP server, etc.)
-const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp-servers.json');
+// In packaged app: extraResources places config/ in Contents/Resources/config/
+// In dev mode: config/ is at project root, 3 levels up from dist/main/instance/
+const MCP_CONFIG_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'config', 'mcp-servers.json')
+  : path.resolve(__dirname, '../../../config/mcp-servers.json');
 
 export class InstanceLifecycleManager extends EventEmitter {
   private settings = getSettingsManager();
@@ -83,12 +87,18 @@ export class InstanceLifecycleManager extends EventEmitter {
   /** Returns MCP config paths to pass to spawned Claude CLI instances. */
   private getMcpConfig(): string[] {
     try {
-      // Only include if the config file exists
       if (require('fs').existsSync(MCP_CONFIG_PATH)) {
+        logger.info('MCP config found', { path: MCP_CONFIG_PATH });
         return [MCP_CONFIG_PATH];
       }
-    } catch {
-      // Silently skip if file doesn't exist
+      logger.warn('MCP config not found — spawned instances will not have custom MCP servers', {
+        expectedPath: MCP_CONFIG_PATH,
+        isPackaged: app.isPackaged,
+      });
+    } catch (err) {
+      logger.error('Failed to check MCP config', err instanceof Error ? err : new Error(String(err)), {
+        path: MCP_CONFIG_PATH,
+      });
     }
     return [];
   }
