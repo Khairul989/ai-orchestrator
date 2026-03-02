@@ -73,8 +73,8 @@ const DEFAULT_CONFIG: LoggerConfig = {
  */
 export class SubsystemLogger {
   constructor(
-    private manager: LogManager,
-    private subsystem: string
+    protected manager: LogManager,
+    protected subsystem: string
   ) {}
 
   debug(message: string, data?: Record<string, unknown>): void {
@@ -115,23 +115,23 @@ export class ContextualLogger extends SubsystemLogger {
   }
 
   override debug(message: string, data?: Record<string, unknown>): void {
-    (this as any).manager.log('debug', (this as any).subsystem, message, data, this.context);
+    this.manager.log('debug', this.subsystem, message, data, this.context);
   }
 
   override info(message: string, data?: Record<string, unknown>): void {
-    (this as any).manager.log('info', (this as any).subsystem, message, data, this.context);
+    this.manager.log('info', this.subsystem, message, data, this.context);
   }
 
   override warn(message: string, data?: Record<string, unknown>): void {
-    (this as any).manager.log('warn', (this as any).subsystem, message, data, this.context);
+    this.manager.log('warn', this.subsystem, message, data, this.context);
   }
 
   override error(message: string, error?: Error, data?: Record<string, unknown>): void {
-    (this as any).manager.logError('error', (this as any).subsystem, message, error, data, this.context);
+    this.manager.logError('error', this.subsystem, message, error, data, this.context);
   }
 
   override fatal(message: string, error?: Error, data?: Record<string, unknown>): void {
-    (this as any).manager.logError('fatal', (this as any).subsystem, message, error, data, this.context);
+    this.manager.logError('fatal', this.subsystem, message, error, data, this.context);
   }
 }
 
@@ -142,9 +142,10 @@ export class LogManager extends EventEmitter {
   private config: LoggerConfig;
   private loggers: Map<string, SubsystemLogger> = new Map();
   private logBuffer: LogEntry[] = [];
-  private maxBufferSize: number = 10000;
+  private maxBufferSize = 10000;
   private logFile: string;
-  private currentFileSize: number = 0;
+  private currentFileSize = 0;
+  private writeQueue = Promise.resolve();
 
   constructor(config: Partial<LoggerConfig> = {}) {
     super();
@@ -289,23 +290,25 @@ export class LogManager extends EventEmitter {
   }
 
   /**
-   * Write log entry to file
+   * Write log entry to file (async via write queue to prevent interleaving)
    */
   private writeToFile(entry: LogEntry): void {
-    try {
-      const line = JSON.stringify(entry) + '\n';
-      const lineSize = Buffer.byteLength(line);
+    const line = JSON.stringify(entry) + '\n';
+    const lineSize = Buffer.byteLength(line);
 
-      // Check if rotation is needed
-      if (this.currentFileSize + lineSize > this.config.maxFileSize) {
-        this.rotateLogFile();
+    this.writeQueue = this.writeQueue.then(async () => {
+      try {
+        // Check if rotation is needed
+        if (this.currentFileSize + lineSize > this.config.maxFileSize) {
+          this.rotateLogFile();
+        }
+
+        await fs.promises.appendFile(this.logFile, line);
+        this.currentFileSize += lineSize;
+      } catch (err) {
+        console.error('Failed to write log:', err);
       }
-
-      fs.appendFileSync(this.logFile, line);
-      this.currentFileSize += lineSize;
-    } catch (error) {
-      console.error('Failed to write to log file:', error);
-    }
+    });
   }
 
   /**
