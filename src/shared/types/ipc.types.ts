@@ -644,7 +644,27 @@ export const IPC_CHANNELS = {
   RECENT_DIRS_ADD: 'recent-dirs:add',
   RECENT_DIRS_REMOVE: 'recent-dirs:remove',
   RECENT_DIRS_PIN: 'recent-dirs:pin',
-  RECENT_DIRS_CLEAR: 'recent-dirs:clear'
+  RECENT_DIRS_CLEAR: 'recent-dirs:clear',
+
+  // Plugin lifecycle events (renderer-bound)
+  PLUGINS_LOADED: 'plugins:loaded',
+  PLUGINS_UNLOADED: 'plugins:unloaded',
+  PLUGINS_ERROR: 'plugins:error',
+
+  // File watcher events (renderer-bound)
+  WATCHER_ERROR: 'watcher:error',
+
+  // Cost events (renderer-bound)
+  COST_USAGE_RECORDED: 'cost:usage-recorded',
+
+  // RLM events (renderer-bound)
+  RLM_STORE_UPDATED: 'rlm:store-updated',
+  RLM_SECTION_ADDED: 'rlm:section-added',
+  RLM_SECTION_REMOVED: 'rlm:section-removed',
+  RLM_QUERY_COMPLETE: 'rlm:query-complete',
+
+  // Menu events (renderer-bound)
+  MENU_NEW_INSTANCE: 'menu:new-instance',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

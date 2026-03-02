@@ -238,7 +238,7 @@ export function registerCostHandlers(deps: {
   costTracker.on('usage-recorded', (data) => {
     deps.windowManager
       .getMainWindow()
-      ?.webContents.send('cost:usage-recorded', data);
+      ?.webContents.send(IPC_CHANNELS.COST_USAGE_RECORDED, data);
   });
 
   costTracker.on('budget-warning', (data) => {

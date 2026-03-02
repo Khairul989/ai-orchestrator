@@ -383,7 +383,7 @@ export function registerFileHandlers(deps: {
   });
 
   watcherManager.on('error', (data) => {
-    windowManager.getMainWindow()?.webContents.send('watcher:error', data);
+    windowManager.getMainWindow()?.webContents.send(IPC_CHANNELS.WATCHER_ERROR, data);
   });
 
   // ============================================

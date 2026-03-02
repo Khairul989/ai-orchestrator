@@ -374,18 +374,18 @@ export function registerProviderHandlers(
   pluginManager.on('plugin-loaded', (pluginId) => {
     deps.windowManager
       .getMainWindow()
-      ?.webContents.send('plugins:loaded', { pluginId });
+      ?.webContents.send(IPC_CHANNELS.PLUGINS_LOADED, { pluginId });
   });
 
   pluginManager.on('plugin-unloaded', (pluginId) => {
     deps.windowManager
       .getMainWindow()
-      ?.webContents.send('plugins:unloaded', { pluginId });
+      ?.webContents.send(IPC_CHANNELS.PLUGINS_UNLOADED, { pluginId });
   });
 
   pluginManager.on('plugin-error', (pluginId, error) => {
     deps.windowManager
       .getMainWindow()
-      ?.webContents.send('plugins:error', { pluginId, error: error.message });
+      ?.webContents.send(IPC_CHANNELS.PLUGINS_ERROR, { pluginId, error: error.message });
   });
 }

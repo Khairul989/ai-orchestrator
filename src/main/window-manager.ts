@@ -4,6 +4,7 @@
 
 import { app, BrowserWindow, screen, Menu, Notification, shell } from 'electron';
 import * as path from 'path';
+import { IPC_CHANNELS } from '../shared/types/ipc.types';
 
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
@@ -126,7 +127,7 @@ export class WindowManager {
             label: 'New Instance',
             accelerator: 'CmdOrCtrl+N',
             click: () => {
-              this.mainWindow?.webContents.send('menu:new-instance');
+              this.mainWindow?.webContents.send(IPC_CHANNELS.MENU_NEW_INSTANCE);
             }
           },
           { type: 'separator' },

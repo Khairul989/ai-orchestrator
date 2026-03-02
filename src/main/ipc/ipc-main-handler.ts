@@ -317,7 +317,7 @@ export class IpcMainHandler {
             );
 
             // Send request to renderer
-            mainWindow.webContents.send('user-action-request', {
+            mainWindow.webContents.send(IPC_CHANNELS.USER_ACTION_REQUEST, {
               requestId,
               instanceId: payload.instanceId,
               action: payload.action,
@@ -462,7 +462,7 @@ export class IpcMainHandler {
     rlm.on('store:created', (store) => {
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:store-updated', {
+        ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
           storeId: store.id,
           store
         });
@@ -471,13 +471,13 @@ export class IpcMainHandler {
     rlm.on('section:added', ({ store, section }) => {
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:section-added', {
+        ?.webContents.send(IPC_CHANNELS.RLM_SECTION_ADDED, {
           storeId: store.id,
           section
         });
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:store-updated', {
+        ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
           storeId: store.id,
           store
         });
@@ -486,13 +486,13 @@ export class IpcMainHandler {
     rlm.on('section:removed', ({ store, section }) => {
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:section-removed', {
+        ?.webContents.send(IPC_CHANNELS.RLM_SECTION_REMOVED, {
           storeId: store.id,
           sectionId: section.id
         });
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:store-updated', {
+        ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
           storeId: store.id,
           store
         });
@@ -501,7 +501,7 @@ export class IpcMainHandler {
     rlm.on('query:executed', ({ session, queryResult }) => {
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:query-complete', {
+        ?.webContents.send(IPC_CHANNELS.RLM_QUERY_COMPLETE, {
           sessionId: session.id,
           queryResult
         });
@@ -510,7 +510,7 @@ export class IpcMainHandler {
     rlm.on('summary:created', ({ storeId, section }) => {
       this.windowManager
         .getMainWindow()
-        ?.webContents.send('rlm:section-added', {
+        ?.webContents.send(IPC_CHANNELS.RLM_SECTION_ADDED, {
           storeId,
           section
         });
