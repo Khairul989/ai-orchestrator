@@ -885,8 +885,8 @@ const electronAPI = {
   /**
    * Detect all available CLIs
    */
-  detectClis: (): Promise<IpcResponse> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.CLI_DETECT_ALL);
+  detectClis: (force?: boolean): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CLI_DETECT_ALL, force ? { force: true } : undefined);
   },
 
   /**

@@ -90,6 +90,36 @@ export interface UserActionRequest {
                   </button>
                 </div>
               </div>
+            } @else if (request.requestType === 'input_required' && !isPermissionRequest(request)) {
+              <!-- Generic input_required prompt: collect free-form text -->
+              <div class="questions-form">
+                <label class="question-item">
+                  <span class="question-label">Your response</span>
+                  <textarea
+                    class="question-input"
+                    rows="3"
+                    [placeholder]="'Type your response...'"
+                    [disabled]="isResponding()"
+                    (input)="onInputRequiredTextChange(request.id, $event)"
+                  ></textarea>
+                </label>
+                <div class="request-actions">
+                  <button
+                    class="btn-reject"
+                    (click)="onReject(request)"
+                    [disabled]="isResponding()"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    class="btn-approve"
+                    (click)="onSubmitInputRequired(request)"
+                    [disabled]="isResponding() || !hasInputRequiredText(request.id)"
+                  >
+                    Submit
+                  </button>
+                </div>
+              </div>
             } @else if (request.requestType === 'select_option' && request.options) {
               <div class="request-options">
                 @for (option of request.options; track option.id) {
@@ -107,7 +137,7 @@ export interface UserActionRequest {
               </div>
             } @else {
               <div class="request-actions">
-                @if (request.requestType === 'input_required') {
+                @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
                   <select
                     class="scope-select"
                     [value]="getInputRequiredScope(request.id)"
@@ -127,7 +157,7 @@ export interface UserActionRequest {
                 >
                   Reject
                 </button>
-                @if (request.requestType === 'input_required') {
+                @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
                   <button
                     class="btn-yolo"
                     (click)="onEnableYolo(request)"
@@ -419,6 +449,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   isResponding = signal(false);
 
   private inputRequiredScopes = new Map<string, 'once' | 'session' | 'always'>();
+  private inputRequiredTexts = new Map<string, string>();
 
   /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
   private questionAnswers = new Map<string, Map<number, string>>();
@@ -502,11 +533,12 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       if (!currentInstanceId || payload.instanceId === currentInstanceId) {
         console.log('[UserActionRequestComponent] Instance ID matches, creating request...');
         const metadata = payload.metadata as UserActionRequest['permissionMetadata'];
+        const isPermissionPrompt = metadata?.type === 'permission_denial';
         const req: UserActionRequest = {
           id: payload.requestId,
           instanceId: payload.instanceId,
           requestType: 'input_required',
-          title: 'Permission Required',
+          title: isPermissionPrompt ? 'Permission Required' : 'Input Required',
           message: payload.prompt,
           createdAt: payload.timestamp,
           permissionMetadata: metadata // Store permission details for retry message
@@ -611,6 +643,20 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     this.inputRequiredScopes.set(requestId, val);
   }
 
+  isPermissionRequest(request: UserActionRequest): boolean {
+    return request.requestType === 'input_required' && request.permissionMetadata?.type === 'permission_denial';
+  }
+
+  onInputRequiredTextChange(requestId: string, event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    this.inputRequiredTexts.set(requestId, target.value);
+  }
+
+  hasInputRequiredText(requestId: string): boolean {
+    const text = this.inputRequiredTexts.get(requestId) || '';
+    return text.trim().length > 0;
+  }
+
   /**
    * Track answer changes for ask_questions requests
    */
@@ -677,6 +723,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     await this.respond(request, true, optionId);
   }
 
+  async onSubmitInputRequired(request: UserActionRequest): Promise<void> {
+    const responseText = (this.inputRequiredTexts.get(request.id) || '').trim();
+    if (!responseText) return;
+
+    await this.respond(request, true, responseText);
+    this.inputRequiredTexts.delete(request.id);
+  }
+
   private async respond(
     request: UserActionRequest,
     approved: boolean,
@@ -687,6 +741,27 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     try {
       // Handle input_required differently - send retry message or denial to CLI
       if (request.requestType === 'input_required') {
+        if (!this.isPermissionRequest(request)) {
+          const inputText = (selectedOption || '').trim();
+          if (!inputText) {
+            return;
+          }
+
+          const result = await this.ipc.respondToInputRequired(
+            request.instanceId,
+            request.id,
+            inputText
+          );
+
+          if (result.success) {
+            this.inputRequiredTexts.delete(request.id);
+            this.pendingRequests.update((requests) =>
+              requests.filter((r) => r.id !== request.id)
+            );
+          }
+          return;
+        }
+
         let response: string;
         const meta = request.permissionMetadata;
         // Create permission key to clear pending permission tracking

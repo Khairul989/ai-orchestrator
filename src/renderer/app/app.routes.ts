@@ -155,6 +155,177 @@ export const routes: Routes = [
       ),
   },
 
+  // Sprint 2: LSP Integration
+  {
+    path: 'lsp',
+    loadComponent: () =>
+      import('./features/lsp/lsp-page.component').then(
+        (m) => m.LspPageComponent
+      ),
+  },
+
+  // Sprint 2: MCP Server Management
+  {
+    path: 'mcp',
+    loadComponent: () =>
+      import('./features/mcp/mcp-page.component').then(
+        (m) => m.McpPageComponent
+      ),
+  },
+
+  // Sprint 2: VCS/Git Operations
+  {
+    path: 'vcs',
+    loadComponent: () =>
+      import('./features/vcs/vcs-page.component').then(
+        (m) => m.VcsPageComponent
+      ),
+  },
+
+  // Sprint 2: Plan Mode
+  {
+    path: 'plan',
+    loadComponent: () =>
+      import('./features/plan/plan-page.component').then(
+        (m) => m.PlanPageComponent
+      ),
+  },
+
+  // Sprint 2: Statistics & Metrics
+  {
+    path: 'stats',
+    loadComponent: () =>
+      import('./features/stats/stats-page.component').then(
+        (m) => m.StatsPageComponent
+      ),
+  },
+
+  // Sprint 1: Cost Tracking
+  {
+    path: 'cost',
+    loadComponent: () =>
+      import('./features/cost/cost-page.component').then(
+        (m) => m.CostPageComponent
+      ),
+  },
+
+  // Sprint 1: Snapshot/Revert
+  {
+    path: 'snapshots',
+    loadComponent: () =>
+      import('./features/snapshots/snapshot-page.component').then(
+        (m) => m.SnapshotPageComponent
+      ),
+  },
+
+  // Sprint 1: Codebase Search
+  {
+    path: 'search',
+    loadComponent: () =>
+      import('./features/codebase/codebase-page.component').then(
+        (m) => m.CodebasePageComponent
+      ),
+  },
+
+  // Sprint 1: Security & Audit
+  {
+    path: 'security',
+    loadComponent: () =>
+      import('./features/security/security-page.component').then(
+        (m) => m.SecurityPageComponent
+      ),
+  },
+
+  // Sprint 3: Logging & Debug
+  {
+    path: 'logs',
+    loadComponent: () =>
+      import('./features/logs/logs-page.component').then(
+        (m) => m.LogsPageComponent
+      ),
+  },
+
+  // Sprint 3: Observations & Reflections
+  {
+    path: 'observations',
+    loadComponent: () =>
+      import('./features/observations/observations-page.component').then(
+        (m) => m.ObservationsPageComponent
+      ),
+  },
+
+  // Sprint 3: Plugins
+  {
+    path: 'plugins',
+    loadComponent: () =>
+      import('./features/plugins/plugins-page.component').then(
+        (m) => m.PluginsPageComponent
+      ),
+  },
+
+  // Sprint 3: Model Management
+  {
+    path: 'models',
+    loadComponent: () =>
+      import('./features/models/models-page.component').then(
+        (m) => m.ModelsPageComponent
+      ),
+  },
+
+  // Sprint 3: Remote Config
+  {
+    path: 'remote-config',
+    loadComponent: () =>
+      import('./features/remote-config/remote-config-page.component').then(
+        (m) => m.RemoteConfigPageComponent
+      ),
+  },
+
+  // Sprint 3: Cross-Instance Communication
+  {
+    path: 'communication',
+    loadComponent: () =>
+      import('./features/communication/communication-page.component').then(
+        (m) => m.CommunicationPageComponent
+      ),
+  },
+
+  // Sprint 3: Multi-Edit
+  {
+    path: 'multi-edit',
+    loadComponent: () =>
+      import('./features/multi-edit/multi-edit-page.component').then(
+        (m) => m.MultiEditPageComponent
+      ),
+  },
+
+  // Sprint 3: Editor Integration
+  {
+    path: 'editor',
+    loadComponent: () =>
+      import('./features/editor/editor-page.component').then(
+        (m) => m.EditorPageComponent
+      ),
+  },
+
+  // Sprint 3: Archive Management
+  {
+    path: 'archive',
+    loadComponent: () =>
+      import('./features/archive/archive-page.component').then(
+        (m) => m.ArchivePageComponent
+      ),
+  },
+
+  // Sprint 3: Semantic Search
+  {
+    path: 'semantic-search',
+    loadComponent: () =>
+      import('./features/semantic-search/semantic-search-page.component').then(
+        (m) => m.SemanticSearchPageComponent
+      ),
+  },
+
   // Catch-all redirect to dashboard
   {
     path: '**',

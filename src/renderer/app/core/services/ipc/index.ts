@@ -11,6 +11,7 @@ export { ElectronIpcService as BaseIpcService, IpcResponse, FileEntry, CopilotMo
 export { AppIpcService } from './app-ipc.service';
 export { InstanceIpcService, CreateInstanceConfig, CreateInstanceWithMessageConfig } from './instance-ipc.service';
 export { ProviderIpcService } from './provider-ipc.service';
+export { PluginIpcService } from './plugin-ipc.service';
 export { SettingsIpcService } from './settings-ipc.service';
 export { FileIpcService } from './file-ipc.service';
 export { HistoryIpcService } from './history-ipc.service';
@@ -33,6 +34,7 @@ export { StatsIpcService } from './stats-ipc.service';
 export { SearchIpcService } from './search-ipc.service';
 export { TrainingIpcService } from './training-ipc.service';
 export { RecentDirectoriesIpcService } from './recent-directories-ipc.service';
+export { CommIpcService } from './comm-ipc.service';
 
 // Import services for facade
 import { Injectable, inject } from '@angular/core';

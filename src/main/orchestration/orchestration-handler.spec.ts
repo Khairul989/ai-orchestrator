@@ -65,5 +65,48 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
     expect(pending[0]?.requestType).toBe('confirm');
     expect(pending[0]?.title).toBe('Confirm');
   });
-});
 
+  it('rejects malformed ask_questions commands without questions', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-3', '/tmp', null);
+
+    const onUserAction = vi.fn();
+    orchestration.on('user-action-request', onUserAction);
+
+    const malformed = [
+      ':::ORCHESTRATOR_COMMAND:::',
+      '{"action":"request_user_action","requestType":"ask_questions","title":"Clarify","message":"Please answer:"}',
+      ':::END_COMMAND:::',
+    ].join('\n');
+
+    orchestration.processOutput('i-3', malformed);
+
+    expect(onUserAction).toHaveBeenCalledTimes(0);
+    expect(orchestration.getPendingUserActionsForInstance('i-3')).toHaveLength(0);
+  });
+
+  it('accepts valid ask_questions commands with explicit questions', () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-4', '/tmp', null);
+
+    const onUserAction = vi.fn();
+    orchestration.on('user-action-request', onUserAction);
+
+    const valid = [
+      ':::ORCHESTRATOR_COMMAND:::',
+      '{"action":"request_user_action","requestType":"ask_questions","title":"Clarify","message":"Please answer:","questions":["Which panel first?","Do you prefer tabs or sections?"]}',
+      ':::END_COMMAND:::',
+    ].join('\n');
+
+    orchestration.processOutput('i-4', valid);
+
+    expect(onUserAction).toHaveBeenCalledTimes(1);
+    const pending = orchestration.getPendingUserActionsForInstance('i-4');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.requestType).toBe('ask_questions');
+    expect(pending[0]?.questions).toEqual([
+      'Which panel first?',
+      'Do you prefer tabs or sections?',
+    ]);
+  });
+});

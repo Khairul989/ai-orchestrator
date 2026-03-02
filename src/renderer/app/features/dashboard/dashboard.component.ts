@@ -30,6 +30,7 @@ import { ProviderType } from '../providers/provider-selector.component';
 import { CopilotModelSelectorComponent } from '../providers/copilot-model-selector.component';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { SidebarHeaderComponent } from './sidebar-header.component';
+import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
 
 @Component({
@@ -45,6 +46,7 @@ import { SidebarFooterComponent } from './sidebar-footer.component';
     FileExplorerComponent,
     CopilotModelSelectorComponent,
     SidebarHeaderComponent,
+    SidebarNavComponent,
     SidebarFooterComponent
   ],
   templateUrl: './dashboard.component.html',

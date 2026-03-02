@@ -79,6 +79,7 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       'vision'
     ],
     alternativePaths: [
+      '/opt/homebrew/bin/claude',
       '/usr/local/bin/claude',
       '/usr/bin/claude',
       `${process.env['HOME']}/.local/bin/claude`
@@ -99,6 +100,7 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       'code-execution'
     ],
     alternativePaths: [
+      '/opt/homebrew/bin/codex',
       '/usr/local/bin/codex',
       `${process.env['HOME']}/.local/bin/codex`
     ]
@@ -119,6 +121,7 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       'large-context'
     ],
     alternativePaths: [
+      '/opt/homebrew/bin/gemini',
       '/usr/local/bin/gemini',
       `${process.env['HOME']}/.local/bin/gemini`
     ]
@@ -139,6 +142,7 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       'mcp-servers'
     ],
     alternativePaths: [
+      '/opt/homebrew/bin/copilot',
       '/usr/local/bin/copilot',
       `${process.env['HOME']}/.local/bin/copilot`,
       `${process.env['HOME']}/.npm-global/bin/copilot`
@@ -152,6 +156,7 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: ['streaming', 'multi-turn', 'local'],
     alternativePaths: [
+      '/opt/homebrew/bin/ollama',
       '/usr/local/bin/ollama',
       `${process.env['HOME']}/.ollama/bin/ollama`,
       '/Applications/Ollama.app/Contents/MacOS/ollama'
@@ -166,8 +171,9 @@ export class CliDetectionService {
   private static instance: CliDetectionService | null = null;
   private cache: DetectionResult | null = null;
   private cacheTimeout = 60000; // 1 minute cache
-  private cacheTime: number = 0;
+  private cacheTime = 0;
 
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
 
   /**

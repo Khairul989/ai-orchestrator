@@ -74,11 +74,11 @@ export class CliStore {
   /**
    * Initialize - detect available CLIs
    */
-  async initialize(): Promise<void> {
+  async initialize(force?: boolean): Promise<void> {
     this.state.update((s) => ({ ...s, loading: true }));
 
     try {
-      const response = await this.ipc.detectClis() as {
+      const response = await this.ipc.detectClis(force) as {
         success: boolean;
         data?: {
           detected: CliInfo[];
@@ -136,9 +136,9 @@ export class CliStore {
   }
 
   /**
-   * Refresh CLI detection
+   * Refresh CLI detection (force bypasses main-process cache)
    */
   async refresh(): Promise<void> {
-    await this.initialize();
+    await this.initialize(true);
   }
 }

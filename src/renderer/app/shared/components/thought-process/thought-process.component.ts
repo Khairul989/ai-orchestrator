@@ -17,7 +17,7 @@ import type { ThinkingContent } from '../../../../../shared/types/instance.types
     <div class="thought-process" [class.expanded]="isExpanded()">
       <button class="thought-header" (click)="toggle()">
         <span class="thought-icon">{{ isExpanded() ? '▼' : '▶' }}</span>
-        <span class="thought-label">{{ displayLabel() }}</span>
+        <span class="thought-label">Thought: {{ displayLabel() }}</span>
         @if (thinkingBlocks()?.length) {
           <span class="thought-count">({{ thinkingBlocks()!.length }})</span>
         }

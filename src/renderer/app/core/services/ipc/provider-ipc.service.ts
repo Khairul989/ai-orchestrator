@@ -21,9 +21,9 @@ export class ProviderIpcService {
   /**
    * Detect all available CLIs
    */
-  async detectClis(): Promise<IpcResponse> {
+  async detectClis(force?: boolean): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.detectClis();
+    return this.api.detectClis(force);
   }
 
   /**

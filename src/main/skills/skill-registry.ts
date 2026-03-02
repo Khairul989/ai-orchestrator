@@ -5,6 +5,7 @@
 
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import {
   SkillBundle,
@@ -61,10 +62,40 @@ export class SkillRegistry extends EventEmitter {
 
   // ============ Discovery ============
 
-  async discoverSkills(searchPaths: string[]): Promise<SkillBundle[]> {
-    const discovered: SkillBundle[] = [];
+  /**
+   * Expand relative dot-prefixed paths (e.g. '.claude/skills') to also
+   * include their home-directory equivalents ('~/.claude/skills').
+   * Absolute paths and non-dot-prefixed paths are kept as-is.
+   */
+  private expandSearchPaths(searchPaths: string[]): string[] {
+    const homeDir = os.homedir();
+    const seen = new Set<string>();
+    const expanded: string[] = [];
 
     for (const searchPath of searchPaths) {
+      if (!seen.has(searchPath)) {
+        seen.add(searchPath);
+        expanded.push(searchPath);
+      }
+
+      // For relative dot-paths, also check in the home directory
+      if (!path.isAbsolute(searchPath) && searchPath.startsWith('.')) {
+        const homePath = path.join(homeDir, searchPath);
+        if (!seen.has(homePath)) {
+          seen.add(homePath);
+          expanded.push(homePath);
+        }
+      }
+    }
+
+    return expanded;
+  }
+
+  async discoverSkills(searchPaths: string[]): Promise<SkillBundle[]> {
+    const discovered: SkillBundle[] = [];
+    const resolvedPaths = this.expandSearchPaths(searchPaths);
+
+    for (const searchPath of resolvedPaths) {
       try {
         const entries = await fs.readdir(searchPath, { withFileTypes: true });
 

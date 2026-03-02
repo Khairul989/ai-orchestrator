@@ -419,12 +419,56 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
       );
     case 'get_task_status':
       return true;
-    case 'request_user_action':
-      return (
-        typeof (cmd as RequestUserActionCommand).requestType === 'string' &&
-        typeof (cmd as RequestUserActionCommand).title === 'string' &&
-        typeof (cmd as RequestUserActionCommand).message === 'string'
-      );
+    case 'request_user_action': {
+      const request = cmd as RequestUserActionCommand;
+      const validRequestTypes: UserActionRequestType[] = [
+        'switch_mode',
+        'approve_action',
+        'confirm',
+        'select_option',
+        'ask_questions',
+      ];
+
+      if (
+        !validRequestTypes.includes(request.requestType) ||
+        typeof request.title !== 'string' ||
+        typeof request.message !== 'string'
+      ) {
+        return false;
+      }
+
+      if (request.requestType === 'switch_mode') {
+        return request.targetMode === 'build' || request.targetMode === 'plan' || request.targetMode === 'review';
+      }
+
+      if (request.requestType === 'select_option') {
+        return (
+          Array.isArray(request.options) &&
+          request.options.length > 0 &&
+          request.options.every(
+            (option) =>
+              option &&
+              typeof option.id === 'string' &&
+              option.id.trim().length > 0 &&
+              typeof option.label === 'string' &&
+              option.label.trim().length > 0 &&
+              (option.description === undefined || typeof option.description === 'string')
+          )
+        );
+      }
+
+      if (request.requestType === 'ask_questions') {
+        return (
+          Array.isArray(request.questions) &&
+          request.questions.length > 0 &&
+          request.questions.every(
+            (question) => typeof question === 'string' && question.trim().length > 0
+          )
+        );
+      }
+
+      return true;
+    }
     // New structured result commands
     case 'report_result':
       return typeof (cmd as ReportResultCommand).summary === 'string';

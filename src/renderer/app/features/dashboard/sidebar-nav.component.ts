@@ -1,0 +1,362 @@
+/**
+ * Sidebar Navigation Component
+ * Collapsible navigation menu with grouped links to all feature pages
+ */
+
+import {
+  ChangeDetectionStrategy,
+  Component,
+  signal
+} from '@angular/core';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+
+interface NavItem {
+  label: string;
+  route: string;
+  icon: string; // SVG path(s)
+  viewBox?: string;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Orchestration',
+    items: [
+      {
+        label: 'Workflows',
+        route: '/workflows',
+        icon: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'
+      },
+      {
+        label: 'Specialists',
+        route: '/specialists',
+        icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
+      },
+      {
+        label: 'Supervision',
+        route: '/supervision',
+        icon: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>'
+      },
+      {
+        label: 'Debate',
+        route: '/debate',
+        icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+      },
+      {
+        label: 'Reviews',
+        route: '/reviews',
+        icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>'
+      },
+      {
+        label: 'Verification',
+        route: '/verification',
+        icon: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>'
+      }
+    ]
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      {
+        label: 'Skills',
+        route: '/skills',
+        icon: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'
+      },
+      {
+        label: 'Memory',
+        route: '/memory',
+        icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>'
+      },
+      {
+        label: 'RLM Context',
+        route: '/rlm',
+        icon: '<path d="M12 3l9 4.5v9L12 21 3 16.5v-9L12 3z"/><path d="M12 12l9-4.5"/><path d="M12 12L3 7.5"/><path d="M12 12v9"/>'
+      },
+      {
+        label: 'Training',
+        route: '/training',
+        icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'
+      },
+      {
+        label: 'Observations',
+        route: '/observations',
+        icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
+      }
+    ]
+  },
+  {
+    label: 'Development',
+    items: [
+      {
+        label: 'LSP',
+        route: '/lsp',
+        icon: '<path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/>'
+      },
+      {
+        label: 'MCP Servers',
+        route: '/mcp',
+        icon: '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>'
+      },
+      {
+        label: 'Git / VCS',
+        route: '/vcs',
+        icon: '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/><path d="M6 9a9 9 0 0 0 9 9"/>'
+      },
+      {
+        label: 'Plan Mode',
+        route: '/plan',
+        icon: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/>'
+      },
+      {
+        label: 'Multi-Edit',
+        route: '/multi-edit',
+        icon: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>'
+      },
+      {
+        label: 'Editor',
+        route: '/editor',
+        icon: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>'
+      },
+      {
+        label: 'Code Search',
+        route: '/search',
+        icon: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'
+      },
+      {
+        label: 'Semantic Search',
+        route: '/semantic-search',
+        icon: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/>'
+      }
+    ]
+  },
+  {
+    label: 'Operations',
+    items: [
+      {
+        label: 'Cost Tracking',
+        route: '/cost',
+        icon: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'
+      },
+      {
+        label: 'Snapshots',
+        route: '/snapshots',
+        icon: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>'
+      },
+      {
+        label: 'Statistics',
+        route: '/stats',
+        icon: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'
+      },
+      {
+        label: 'Logs & Debug',
+        route: '/logs',
+        icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>'
+      },
+      {
+        label: 'Security',
+        route: '/security',
+        icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
+      },
+      {
+        label: 'Archive',
+        route: '/archive',
+        icon: '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>'
+      }
+    ]
+  },
+  {
+    label: 'System',
+    items: [
+      {
+        label: 'Hooks',
+        route: '/hooks',
+        icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'
+      },
+      {
+        label: 'Worktrees',
+        route: '/worktrees',
+        icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
+      },
+      {
+        label: 'Plugins',
+        route: '/plugins',
+        icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>'
+      },
+      {
+        label: 'Models',
+        route: '/models',
+        icon: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05"/><path d="M12 22.08V12"/>'
+      },
+      {
+        label: 'Remote Config',
+        route: '/remote-config',
+        icon: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>'
+      },
+      {
+        label: 'Communication',
+        route: '/communication',
+        icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>'
+      }
+    ]
+  }
+];
+
+@Component({
+  selector: 'app-sidebar-nav',
+  standalone: true,
+  imports: [RouterLink, RouterLinkActive],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="sidebar-nav" [class.expanded]="expanded()">
+      <button class="nav-toggle" (click)="expanded.set(!expanded())">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        <span class="toggle-label">Features</span>
+        <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      @if (expanded()) {
+        <nav class="nav-menu" role="navigation" aria-label="Feature navigation">
+          @for (group of groups; track group.label) {
+            <div class="nav-group">
+              <span class="group-label">{{ group.label }}</span>
+              @for (item of group.items; track item.route) {
+                <a class="nav-item"
+                  [routerLink]="item.route"
+                  routerLinkActive="active"
+                  [title]="item.label">
+                  <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    [innerHTML]="item.icon">
+                  </svg>
+                  <span class="nav-label">{{ item.label }}</span>
+                </a>
+              }
+            </div>
+          }
+        </nav>
+      }
+    </div>
+  `,
+  styles: [`
+    :host { display: block; }
+
+    .sidebar-nav {
+      border-bottom: 1px solid var(--border-color, #2a2a2e);
+    }
+
+    .nav-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      padding: 8px 12px;
+      background: none;
+      border: none;
+      color: var(--text-muted, #9a9aa0);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: all 0.15s ease;
+
+      &:hover {
+        color: var(--primary-color, #f59e0b);
+        background: rgba(245, 158, 11, 0.04);
+      }
+    }
+
+    .toggle-label { flex: 1; text-align: left; }
+
+    .chevron {
+      transition: transform 0.2s ease;
+    }
+
+    .expanded .chevron {
+      transform: rotate(180deg);
+    }
+
+    .nav-menu {
+      max-height: 45vh;
+      overflow-y: auto;
+      padding: 0 4px 8px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-color, #2a2a2e) transparent;
+
+      &::-webkit-scrollbar { width: 4px; }
+      &::-webkit-scrollbar-track { background: transparent; }
+      &::-webkit-scrollbar-thumb {
+        background: var(--border-color, #2a2a2e);
+        border-radius: 2px;
+      }
+    }
+
+    .nav-group {
+      margin-bottom: 4px;
+    }
+
+    .group-label {
+      display: block;
+      padding: 6px 8px 2px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted, #9a9aa0);
+      opacity: 0.7;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+      margin: 1px 0;
+      border-radius: 4px;
+      color: var(--text-secondary, #c4c4c9);
+      text-decoration: none;
+      font-size: 12px;
+      transition: all 0.1s ease;
+      cursor: pointer;
+
+      &:hover {
+        background: rgba(245, 158, 11, 0.06);
+        color: var(--text-primary, #fafaf9);
+      }
+
+      &.active {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--primary-color, #f59e0b);
+
+        .nav-icon { color: var(--primary-color, #f59e0b); }
+      }
+    }
+
+    .nav-icon {
+      flex-shrink: 0;
+      color: var(--text-muted, #9a9aa0);
+      transition: color 0.1s ease;
+    }
+
+    .nav-label {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  `]
+})
+export class SidebarNavComponent {
+  readonly expanded = signal(false);
+  readonly groups = NAV_GROUPS;
+}
