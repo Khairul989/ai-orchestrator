@@ -390,7 +390,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           contentParts.push(event.text);
         }
       } catch {
-        // Not JSON, skip
+        /* intentionally ignored: non-JSON lines are skipped during output parsing */
       }
     }
 
@@ -449,7 +449,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           return event.error.message || JSON.stringify(event.error);
         }
       } catch {
-        // Not JSON, skip
+        /* intentionally ignored: non-JSON lines are skipped during output parsing */
       }
     }
     return null;
@@ -528,7 +528,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           };
         }
       } catch {
-        // Not JSON, continue
+        /* intentionally ignored: non-JSON lines are skipped during token count parsing */
       }
     }
 

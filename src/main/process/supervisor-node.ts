@@ -378,8 +378,8 @@ export class SupervisorNodeManager extends EventEmitter {
 
     try {
       await this.startWorker(worker.id);
-    } catch (error) {
-      // Start failed, will be handled by startWorker
+    } catch {
+      /* intentionally ignored: startWorker emits the failure event; no further handling needed here */
     }
   }
 
@@ -393,7 +393,7 @@ export class SupervisorNodeManager extends EventEmitter {
         try {
           await this.stopWorker(m.node.id);
         } catch {
-          // Ignore stop errors
+          /* intentionally ignored: stop errors during restart-all are non-critical */
         }
       });
     await Promise.all(stopPromises);
@@ -409,7 +409,7 @@ export class SupervisorNodeManager extends EventEmitter {
         managed.node.restartCount++;
         await this.startWorker(managed.node.id);
       } catch {
-        // Continue with other workers
+        /* intentionally ignored: failure in one worker during restart-all should not block others */
       }
     }
   }
@@ -430,7 +430,7 @@ export class SupervisorNodeManager extends EventEmitter {
         try {
           await this.stopWorker(managed.node.id);
         } catch {
-          // Ignore stop errors
+          /* intentionally ignored: stop errors during restart-rest are non-critical */
         }
       }
     }
@@ -443,7 +443,7 @@ export class SupervisorNodeManager extends EventEmitter {
         orderedWorkers[i].node.restartCount++;
         await this.startWorker(orderedWorkers[i].node.id);
       } catch {
-        // Continue
+        /* intentionally ignored: failure in one worker during restart-rest should not block others */
       }
     }
   }
@@ -471,7 +471,7 @@ export class SupervisorNodeManager extends EventEmitter {
             try {
               await this.stopWorker(managed.node.id);
             } catch {
-              // Ignore
+              /* intentionally ignored: stop errors during exhausted shutdown are non-critical */
             }
           }
         }
@@ -665,7 +665,7 @@ export class SupervisorNodeManager extends EventEmitter {
         try {
           await this.stopWorker(managed.node.id);
         } catch {
-          // Ignore
+          /* intentionally ignored: stop errors during shutdown are non-critical */
         }
       }
       managed.circuitBreaker.destroy();

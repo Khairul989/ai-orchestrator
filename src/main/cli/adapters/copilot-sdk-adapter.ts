@@ -195,7 +195,7 @@ export class CopilotSdkAdapter extends EventEmitter {
         };
       } catch (err) {
         // Try to stop the client in case it partially started
-        try { await testClient.stop(); } catch { /* ignore */ }
+        try { await testClient.stop(); } catch { /* intentionally ignored: cleanup during checkStatus failure */ }
         throw err;
       }
     } catch (error) {
@@ -499,7 +499,7 @@ export class CopilotSdkAdapter extends EventEmitter {
       try {
         await this.session.destroy();
       } catch {
-        // Ignore errors during cleanup
+        /* intentionally ignored: errors during termination cleanup are non-critical */
       }
     }
 
@@ -512,7 +512,7 @@ export class CopilotSdkAdapter extends EventEmitter {
           await this.client.forceStop();
         }
       } catch {
-        // Ignore errors during cleanup
+        /* intentionally ignored: errors during termination cleanup are non-critical */
       }
     }
 
@@ -573,7 +573,7 @@ export class CopilotSdkAdapter extends EventEmitter {
           enabled: m.policy?.state === 'enabled'
         }));
       } catch (err) {
-        try { await tempClient.stop(); } catch { /* ignore */ }
+        try { await tempClient.stop(); } catch { /* intentionally ignored: cleanup during listAvailableModels failure */ }
         throw err;
       }
     } catch (error) {

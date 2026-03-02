@@ -60,7 +60,7 @@ export class SkillLoader extends EventEmitter {
           }
         }
       } catch {
-        // Directory doesn't exist, skip
+        /* intentionally ignored: skill bundle directory may not exist */
       }
     }
 
@@ -260,7 +260,7 @@ export class SkillLoader extends EventEmitter {
           totalTokens += tokens;
         }
       } catch {
-        // Skip failed loads
+        /* intentionally ignored: failed skill file loads are skipped gracefully */
       }
     }
   }
@@ -282,7 +282,7 @@ export class SkillLoader extends EventEmitter {
           totalTokens += tokens;
         }
       } catch {
-        // Skip failed loads
+        /* intentionally ignored: failed skill file loads are skipped gracefully */
       }
     }
   }

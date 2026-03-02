@@ -423,7 +423,7 @@ export class SkillMatcher extends EventEmitter {
         }
       }
     } catch {
-      // Directory doesn't exist, skip
+      /* intentionally ignored: custom commands directory may not exist */
     }
   }
 

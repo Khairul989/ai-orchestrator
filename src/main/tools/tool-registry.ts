@@ -137,7 +137,7 @@ export class ToolRegistry {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       delete require.cache[require.resolve(filePath)];
     } catch {
-      // ignore
+      /* intentionally ignored: require.resolve may fail for some module paths */
     }
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require(filePath);

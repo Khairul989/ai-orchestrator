@@ -517,7 +517,7 @@ Answer:`;
                 return;
               }
             } catch {
-              // Skip malformed JSON
+              /* intentionally ignored: malformed JSON lines are skipped during streaming parse */
             }
           }
         }
@@ -593,7 +593,7 @@ Answer:`;
                 return;
               }
             } catch {
-              // Skip malformed JSON
+              /* intentionally ignored: malformed JSON lines are skipped during streaming parse */
             }
           }
         }
@@ -685,7 +685,7 @@ Answer:`;
                 return;
               }
             } catch {
-              // Skip malformed JSON
+              /* intentionally ignored: malformed JSON lines are skipped during streaming parse */
             }
           }
         }

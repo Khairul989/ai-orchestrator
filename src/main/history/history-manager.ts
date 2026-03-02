@@ -212,7 +212,7 @@ export class HistoryManager {
     try {
       await fs.promises.unlink(conversationPath);
     } catch {
-      // Ignore if file doesn't exist
+      /* intentionally ignored: file may not exist if it was never written */
     }
 
     logger.info('Deleted history entry', { entryId });
@@ -229,7 +229,7 @@ export class HistoryManager {
       try {
         await fs.promises.unlink(conversationPath);
       } catch {
-        // Ignore
+        /* intentionally ignored: file may already be absent during clearAll */
       }
     }
 
@@ -272,7 +272,7 @@ export class HistoryManager {
         fs.unlinkSync(tempPath);
         logger.info('Cleaned up leftover index temp file');
       } catch {
-        // Ignore
+        /* intentionally ignored: temp file cleanup is best-effort */
       }
     }
 
@@ -341,7 +341,7 @@ export class HistoryManager {
           await fs.promises.unlink(filePath);
           logger.info('Deleted empty orphaned file', { file });
         } catch {
-          // Ignore
+          /* intentionally ignored: orphaned file cleanup is best-effort */
         }
         continue;
       }
@@ -453,7 +453,7 @@ export class HistoryManager {
       try {
         await fs.promises.unlink(tempPath);
       } catch {
-        // Ignore
+        /* intentionally ignored: temp file may not exist if write never started */
       }
 
       // Direct write as fallback
@@ -505,7 +505,7 @@ export class HistoryManager {
         try {
           await fs.promises.unlink(conversationPath);
         } catch {
-          // Ignore
+          /* intentionally ignored: old conversation file may not exist during limit enforcement */
         }
       }
     }

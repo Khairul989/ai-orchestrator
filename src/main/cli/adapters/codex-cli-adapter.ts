@@ -306,7 +306,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           contentParts.push(event.content);
         }
       } catch {
-        // Not JSON, skip
+        /* intentionally ignored: non-JSON lines are skipped during output parsing */
       }
     }
 
@@ -418,7 +418,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           };
         }
       } catch {
-        // Not JSON, continue
+        /* intentionally ignored: non-JSON lines are skipped during token count parsing */
       }
     }
 
