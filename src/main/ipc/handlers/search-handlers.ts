@@ -5,12 +5,13 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  SearchSemanticPayload,
-  SearchBuildIndexPayload,
-  SearchConfigureExaPayload
-} from '../../../shared/types/ipc.types';
 import { getSemanticSearchManager } from '../../workspace/semantic-search';
+import {
+  validateIpcPayload,
+  SearchSemanticPayloadSchema,
+  SearchBuildIndexPayloadSchema,
+  SearchConfigureExaPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 
 export function registerSearchHandlers(): void {
   const searchManager = getSemanticSearchManager();
@@ -24,16 +25,17 @@ export function registerSearchHandlers(): void {
     IPC_CHANNELS.SEARCH_SEMANTIC,
     async (
       _event: IpcMainInvokeEvent,
-      payload: SearchSemanticPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SearchSemanticPayloadSchema, payload, 'SEARCH_SEMANTIC');
         const results = await searchManager.search({
-          query: payload.query,
-          directory: payload.directory,
-          maxResults: payload.maxResults,
-          includePatterns: payload.includePatterns,
-          excludePatterns: payload.excludePatterns,
-          searchType: payload.searchType
+          query: validated.query,
+          directory: validated.directory ?? process.cwd(),
+          maxResults: validated.maxResults,
+          includePatterns: validated.includePatterns,
+          excludePatterns: validated.excludePatterns,
+          searchType: validated.searchType,
         });
         return { success: true, data: results };
       } catch (error) {
@@ -54,13 +56,14 @@ export function registerSearchHandlers(): void {
     IPC_CHANNELS.SEARCH_BUILD_INDEX,
     async (
       _event: IpcMainInvokeEvent,
-      payload: SearchBuildIndexPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SearchBuildIndexPayloadSchema, payload, 'SEARCH_BUILD_INDEX');
         await searchManager.buildIndex(
-          payload.directory,
-          payload.includePatterns || ['**/*.ts', '**/*.js', '**/*.py'],
-          payload.excludePatterns || ['**/node_modules/**', '**/.git/**']
+          validated.directory,
+          validated.includePatterns || ['**/*.ts', '**/*.js', '**/*.py'],
+          validated.excludePatterns || ['**/node_modules/**', '**/.git/**']
         );
         return { success: true };
       } catch (error) {
@@ -81,12 +84,23 @@ export function registerSearchHandlers(): void {
     IPC_CHANNELS.SEARCH_CONFIGURE_EXA,
     async (
       _event: IpcMainInvokeEvent,
-      payload: SearchConfigureExaPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SearchConfigureExaPayloadSchema, payload, 'SEARCH_CONFIGURE_EXA');
+        if (!validated.apiKey) {
+          return {
+            success: false,
+            error: {
+              code: 'SEARCH_CONFIGURE_EXA_FAILED',
+              message: 'apiKey is required to configure Exa',
+              timestamp: Date.now()
+            }
+          };
+        }
         searchManager.configureExa({
-          apiKey: payload.apiKey,
-          baseUrl: payload.baseUrl
+          apiKey: validated.apiKey,
+          baseUrl: validated.baseUrl,
         });
         return { success: true };
       } catch (error) {

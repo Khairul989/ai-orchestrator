@@ -663,6 +663,9 @@ export const IPC_CHANNELS = {
   RLM_SECTION_REMOVED: 'rlm:section-removed',
   RLM_QUERY_COMPLETE: 'rlm:query-complete',
 
+  // User action response (renderer → main)
+  USER_ACTION_RESPONSE: 'user-action-response',
+
   // Menu events (renderer-bound)
   MENU_NEW_INSTANCE: 'menu:new-instance',
 } as const;

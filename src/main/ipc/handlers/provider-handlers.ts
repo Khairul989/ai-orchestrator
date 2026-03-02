@@ -5,21 +5,22 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  ProviderStatusPayload,
-  ProviderUpdateConfigPayload,
-  PluginsLoadPayload,
-  PluginsUnloadPayload,
-  PluginsGetPayload,
-  PluginsGetMetaPayload,
-  PluginsInstallPayload,
-  PluginsUninstallPayload,
-  PluginsCreateTemplatePayload
-} from '../../../shared/types/ipc.types';
 import type { ProviderType } from '../../../shared/types/provider.types';
 import { getProviderRegistry } from '../../providers';
 import { getProviderPluginsManager } from '../../providers/provider-plugins';
 import type { WindowManager } from '../../window-manager';
+import {
+  validateIpcPayload,
+  ProviderStatusPayloadSchema,
+  ProviderUpdateConfigPayloadSchema,
+  PluginsLoadPayloadSchema,
+  PluginsUnloadPayloadSchema,
+  PluginsInstallPayloadSchema,
+  PluginsUninstallPayloadSchema,
+  PluginsGetPayloadSchema,
+  PluginsGetMetaPayloadSchema,
+  PluginsCreateTemplatePayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 
 interface RegisterProviderHandlersDeps {
   windowManager: WindowManager;
@@ -68,12 +69,13 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PROVIDER_STATUS,
     async (
       event: IpcMainInvokeEvent,
-      payload: ProviderStatusPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(ProviderStatusPayloadSchema, payload, 'PROVIDER_STATUS');
         const status = await registry.checkProviderStatus(
-          payload.providerType as ProviderType,
-          payload.forceRefresh
+          validated.providerType as ProviderType,
+          validated.forceRefresh
         );
         return {
           success: true,
@@ -125,7 +127,7 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PROVIDER_UPDATE_CONFIG,
     async (
       event: IpcMainInvokeEvent,
-      payload: ProviderUpdateConfigPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
         const authError = deps.ensureAuthorized(
@@ -134,9 +136,10 @@ export function registerProviderHandlers(
           payload
         );
         if (authError) return authError;
+        const validated = validateIpcPayload(ProviderUpdateConfigPayloadSchema, payload, 'PROVIDER_UPDATE_CONFIG');
         registry.updateConfig(
-          payload.providerType as ProviderType,
-          payload.config
+          validated.providerType as ProviderType,
+          validated.config
         );
         return { success: true };
       } catch (error) {
@@ -181,12 +184,13 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_LOAD,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsLoadPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const plugin = await pluginManager.loadPlugin(payload.idOrPath, {
-          timeout: payload.timeout,
-          sandbox: payload.sandbox
+        const validated = validateIpcPayload(PluginsLoadPayloadSchema, payload, 'PLUGINS_LOAD');
+        const plugin = await pluginManager.loadPlugin(validated.idOrPath, {
+          timeout: validated.timeout,
+          sandbox: validated.sandbox
         });
         return {
           success: true,
@@ -210,10 +214,11 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_UNLOAD,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsUnloadPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await pluginManager.unloadPlugin(payload.pluginId);
+        const validated = validateIpcPayload(PluginsUnloadPayloadSchema, payload, 'PLUGINS_UNLOAD');
+        await pluginManager.unloadPlugin(validated.pluginId);
         return { success: true };
       } catch (error) {
         return {
@@ -233,10 +238,11 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_INSTALL,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsInstallPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const meta = await pluginManager.installPlugin(payload.sourcePath);
+        const validated = validateIpcPayload(PluginsInstallPayloadSchema, payload, 'PLUGINS_INSTALL');
+        const meta = await pluginManager.installPlugin(validated.sourcePath);
         return { success: true, data: meta };
       } catch (error) {
         return {
@@ -256,10 +262,11 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_UNINSTALL,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsUninstallPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await pluginManager.uninstallPlugin(payload.pluginId);
+        const validated = validateIpcPayload(PluginsUninstallPayloadSchema, payload, 'PLUGINS_UNINSTALL');
+        await pluginManager.uninstallPlugin(validated.pluginId);
         return { success: true };
       } catch (error) {
         return {
@@ -279,10 +286,11 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_GET,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsGetPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const plugin = pluginManager.getPlugin(payload.pluginId);
+        const validated = validateIpcPayload(PluginsGetPayloadSchema, payload, 'PLUGINS_GET');
+        const plugin = pluginManager.getPlugin(validated.pluginId);
         return {
           success: true,
           data: plugin ? pluginManager.pluginToProviderConfig(plugin) : null
@@ -328,11 +336,12 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_GET_META,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsGetMetaPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(PluginsGetMetaPayloadSchema, payload, 'PLUGINS_GET_META');
         const allMeta = pluginManager.getAllPluginMeta();
-        const meta = allMeta.find((m) => m.id === payload.pluginId);
+        const meta = allMeta.find((m) => m.id === validated.pluginId);
         return { success: true, data: meta || null };
       } catch (error) {
         return {
@@ -352,10 +361,11 @@ export function registerProviderHandlers(
     IPC_CHANNELS.PLUGINS_CREATE_TEMPLATE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: PluginsCreateTemplatePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const filePath = pluginManager.savePluginTemplate(payload.name);
+        const validated = validateIpcPayload(PluginsCreateTemplatePayloadSchema, payload, 'PLUGINS_CREATE_TEMPLATE');
+        const filePath = pluginManager.savePluginTemplate(validated.name);
         return { success: true, data: { filePath } };
       } catch (error) {
         return {

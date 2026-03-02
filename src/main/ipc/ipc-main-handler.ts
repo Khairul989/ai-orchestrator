@@ -48,7 +48,6 @@ import {
 export class IpcMainHandler {
   private instanceManager: InstanceManager;
   private windowManager: WindowManager;
-  private ipcRateLimits: Map<string, number> = new Map();
   private ipcAuthToken: string;
 
   constructor(instanceManager: InstanceManager, windowManager: WindowManager) {
@@ -121,28 +120,6 @@ export class IpcMainHandler {
       };
     }
 
-    return null;
-  }
-
-  private enforceRateLimit(
-    event: IpcMainInvokeEvent,
-    channel: string,
-    minIntervalMs: number
-  ): IpcResponse | null {
-    const key = `${event.sender.id}:${channel}`;
-    const now = Date.now();
-    const last = this.ipcRateLimits.get(key);
-    if (last && now - last < minIntervalMs) {
-      return {
-        success: false,
-        error: {
-          code: 'IPC_RATE_LIMITED',
-          message: `Rate limited: ${channel}`,
-          timestamp: now
-        }
-      };
-    }
-    this.ipcRateLimits.set(key, now);
     return null;
   }
 
@@ -353,14 +330,15 @@ export class IpcMainHandler {
 
     // Handle sending user action response from renderer
     ipcMain.on(
-      'user-action-response',
+      IPC_CHANNELS.USER_ACTION_RESPONSE,
       (
         event: IpcMainInvokeEvent,
         payload: { requestId: string; approved: boolean; reason?: string }
       ) => {
+        if (!payload?.requestId || typeof payload.requestId !== 'string') return;
         // Forward the response to the waiting handler
         event.sender.send(`user-action-response:${payload.requestId}`, {
-          approved: payload.approved,
+          approved: !!payload.approved,
           reason: payload.reason
         });
       }

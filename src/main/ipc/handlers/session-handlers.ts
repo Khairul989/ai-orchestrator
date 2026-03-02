@@ -5,25 +5,26 @@
 
 import { ipcMain, IpcMainInvokeEvent, dialog, clipboard, shell } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  SessionForkPayload,
-  SessionExportPayload,
-  SessionImportPayload,
-  SessionCopyToClipboardPayload,
-  SessionSaveToFilePayload,
-  SessionRevealFilePayload,
-  ArchiveSessionPayload,
-  ArchiveListPayload,
-  ArchiveRestorePayload,
-  ArchiveDeletePayload,
-  ArchiveGetMetaPayload,
-  ArchiveUpdateTagsPayload,
-  ArchiveCleanupPayload,
-  HistoryListPayload,
-  HistoryLoadPayload,
-  HistoryDeletePayload,
-  HistoryRestorePayload
-} from '../../../shared/types/ipc.types';
+import {
+  validateIpcPayload,
+  SessionForkPayloadSchema,
+  SessionExportPayloadSchema,
+  SessionImportPayloadSchema,
+  SessionCopyToClipboardPayloadSchema,
+  SessionSaveToFilePayloadSchema,
+  SessionRevealFilePayloadSchema,
+  ArchiveSessionPayloadSchema,
+  ArchiveListPayloadSchema,
+  ArchiveRestorePayloadSchema,
+  ArchiveDeletePayloadSchema,
+  ArchiveGetMetaPayloadSchema,
+  ArchiveUpdateTagsPayloadSchema,
+  ArchiveCleanupPayloadSchema,
+  HistoryListPayloadSchema,
+  HistoryLoadPayloadSchema,
+  HistoryDeletePayloadSchema,
+  HistoryRestorePayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
@@ -53,13 +54,14 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.SESSION_FORK,
     async (
       event: IpcMainInvokeEvent,
-      payload: SessionForkPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SessionForkPayloadSchema, payload, 'SESSION_FORK');
         const forkedInstance = await instanceManager.forkInstance({
-          instanceId: payload.instanceId,
-          atMessageIndex: payload.atMessageIndex,
-          displayName: payload.displayName
+          instanceId: validated.instanceId,
+          atMessageIndex: validated.atMessageIndex,
+          displayName: validated.displayName
         });
         return {
           success: true,
@@ -83,18 +85,19 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.SESSION_EXPORT,
     async (
       event: IpcMainInvokeEvent,
-      payload: SessionExportPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        if (payload.format === 'json') {
-          const exported = instanceManager.exportSession(payload.instanceId);
+        const validated = validateIpcPayload(SessionExportPayloadSchema, payload, 'SESSION_EXPORT');
+        if (validated.format === 'json') {
+          const exported = instanceManager.exportSession(validated.instanceId);
           return {
             success: true,
             data: exported
           };
         } else {
           const markdown = instanceManager.exportSessionMarkdown(
-            payload.instanceId
+            validated.instanceId
           );
           return {
             success: true,
@@ -119,12 +122,13 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.SESSION_IMPORT,
     async (
       event: IpcMainInvokeEvent,
-      payload: SessionImportPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SessionImportPayloadSchema, payload, 'SESSION_IMPORT');
         // Read and parse the file
         const fs = require('fs').promises;
-        const content = await fs.readFile(payload.filePath, 'utf-8');
+        const content = await fs.readFile(validated.filePath, 'utf-8');
         const session: ExportedSession = JSON.parse(content);
 
         // Validate version
@@ -141,7 +145,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
         const instance = await instanceManager.importSession(
           session,
-          payload.workingDirectory
+          validated.workingDirectory
         );
 
         return {
@@ -166,21 +170,22 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.SESSION_COPY_TO_CLIPBOARD,
     async (
       event: IpcMainInvokeEvent,
-      payload: SessionCopyToClipboardPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SessionCopyToClipboardPayloadSchema, payload, 'SESSION_COPY_TO_CLIPBOARD');
         let content: string;
-        if (payload.format === 'json') {
-          const exported = instanceManager.exportSession(payload.instanceId);
+        if (validated.format === 'json') {
+          const exported = instanceManager.exportSession(validated.instanceId);
           content = JSON.stringify(exported, null, 2);
         } else {
-          content = instanceManager.exportSessionMarkdown(payload.instanceId);
+          content = instanceManager.exportSessionMarkdown(validated.instanceId);
         }
 
         clipboard.writeText(content);
         return {
           success: true,
-          data: { copied: true, format: payload.format }
+          data: { copied: true, format: validated.format }
         };
       } catch (error) {
         return {
@@ -200,23 +205,24 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.SESSION_SAVE_TO_FILE,
     async (
       event: IpcMainInvokeEvent,
-      payload: SessionSaveToFilePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        let filePath = payload.filePath;
+        const validated = validateIpcPayload(SessionSaveToFilePayloadSchema, payload, 'SESSION_SAVE_TO_FILE');
+        let filePath = validated.filePath;
 
         // Show save dialog if no path provided
         if (!filePath) {
-          const instance = instanceManager.getInstance(payload.instanceId);
+          const instance = instanceManager.getInstance(validated.instanceId);
           const defaultName =
             instance?.displayName?.replace(/[^a-z0-9]/gi, '_') || 'session';
-          const extension = payload.format === 'json' ? 'json' : 'md';
+          const extension = validated.format === 'json' ? 'json' : 'md';
 
           const result = await dialog.showSaveDialog({
             title: 'Save Session',
             defaultPath: `${defaultName}.${extension}`,
             filters: [
-              payload.format === 'json'
+              validated.format === 'json'
                 ? { name: 'JSON', extensions: ['json'] }
                 : { name: 'Markdown', extensions: ['md'] }
             ]
@@ -237,17 +243,17 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
         // Export and write
         let content: string;
-        if (payload.format === 'json') {
-          const exported = instanceManager.exportSession(payload.instanceId);
+        if (validated.format === 'json') {
+          const exported = instanceManager.exportSession(validated.instanceId);
           content = JSON.stringify(exported, null, 2);
         } else {
-          content = instanceManager.exportSessionMarkdown(payload.instanceId);
+          content = instanceManager.exportSessionMarkdown(validated.instanceId);
         }
 
         const fs = require('fs').promises;
         await fs.writeFile(filePath, content, 'utf-8');
 
-        return { success: true, data: { filePath, format: payload.format } };
+        return { success: true, data: { filePath, format: validated.format } };
       } catch (error) {
         return {
           success: false,
@@ -266,10 +272,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.SESSION_REVEAL_FILE,
     async (
       event: IpcMainInvokeEvent,
-      payload: SessionRevealFilePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        shell.showItemInFolder(payload.filePath);
+        const validated = validateIpcPayload(SessionRevealFilePayloadSchema, payload, 'SESSION_REVEAL_FILE');
+        shell.showItemInFolder(validated.filePath);
         return { success: true };
       } catch (error) {
         return {
@@ -295,15 +302,16 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_SESSION,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveSessionPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(ArchiveSessionPayloadSchema, payload, 'ARCHIVE_SESSION');
         // Get the instance from instance manager
-        const instance = instanceManager.getInstance(payload.instanceId);
+        const instance = instanceManager.getInstance(validated.instanceId);
         if (!instance) {
-          throw new Error(`Instance not found: ${payload.instanceId}`);
+          throw new Error(`Instance not found: ${validated.instanceId}`);
         }
-        const meta = archiveManager.archiveSession(instance, payload.tags);
+        const meta = archiveManager.archiveSession(instance, validated.tags);
         return { success: true, data: meta };
       } catch (error) {
         return {
@@ -323,15 +331,16 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_LIST,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveListPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const filter = payload
+        const validated = validateIpcPayload(ArchiveListPayloadSchema, payload, 'ARCHIVE_LIST');
+        const filter = validated
           ? {
-              beforeDate: payload.beforeDate,
-              afterDate: payload.afterDate,
-              tags: payload.tags,
-              searchTerm: payload.searchTerm
+              beforeDate: validated.beforeDate,
+              afterDate: validated.afterDate,
+              tags: validated.tags,
+              searchTerm: validated.searchTerm
             }
           : undefined;
         const archives = archiveManager.listArchivedSessions(filter);
@@ -354,10 +363,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_RESTORE,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveRestorePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const sessionData = archiveManager.restoreSession(payload.sessionId);
+        const validated = validateIpcPayload(ArchiveRestorePayloadSchema, payload, 'ARCHIVE_RESTORE');
+        const sessionData = archiveManager.restoreSession(validated.sessionId);
         return { success: true, data: sessionData };
       } catch (error) {
         return {
@@ -377,11 +387,12 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_DELETE,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveDeletePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(ArchiveDeletePayloadSchema, payload, 'ARCHIVE_DELETE');
         const success = archiveManager.deleteArchivedSession(
-          payload.sessionId
+          validated.sessionId
         );
         return { success: true, data: { deleted: success } };
       } catch (error) {
@@ -402,10 +413,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_GET_META,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveGetMetaPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const meta = archiveManager.getArchivedSessionMeta(payload.sessionId);
+        const validated = validateIpcPayload(ArchiveGetMetaPayloadSchema, payload, 'ARCHIVE_GET_META');
+        const meta = archiveManager.getArchivedSessionMeta(validated.sessionId);
         return { success: true, data: meta };
       } catch (error) {
         return {
@@ -425,12 +437,13 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_UPDATE_TAGS,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveUpdateTagsPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(ArchiveUpdateTagsPayloadSchema, payload, 'ARCHIVE_UPDATE_TAGS');
         const success = archiveManager.updateTags(
-          payload.sessionId,
-          payload.tags
+          validated.sessionId,
+          validated.tags
         );
         return { success: true, data: { updated: success } };
       } catch (error) {
@@ -471,10 +484,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.ARCHIVE_CLEANUP,
     async (
       event: IpcMainInvokeEvent,
-      payload: ArchiveCleanupPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const deleted = archiveManager.cleanupOldArchives(payload.maxAgeDays);
+        const validated = validateIpcPayload(ArchiveCleanupPayloadSchema, payload, 'ARCHIVE_CLEANUP');
+        const deleted = archiveManager.cleanupOldArchives(validated.maxAgeDays);
         return { success: true, data: { deletedCount: deleted } };
       } catch (error) {
         return {
@@ -500,10 +514,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.HISTORY_LIST,
     async (
       event: IpcMainInvokeEvent,
-      payload: HistoryListPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const entries = history.getEntries(payload);
+        const validated = validateIpcPayload(HistoryListPayloadSchema, payload, 'HISTORY_LIST');
+        const entries = history.getEntries(validated);
         return {
           success: true,
           data: entries
@@ -526,16 +541,17 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.HISTORY_LOAD,
     async (
       event: IpcMainInvokeEvent,
-      payload: HistoryLoadPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const data = await history.loadConversation(payload.entryId);
+        const validated = validateIpcPayload(HistoryLoadPayloadSchema, payload, 'HISTORY_LOAD');
+        const data = await history.loadConversation(validated.entryId);
         if (!data) {
           return {
             success: false,
             error: {
               code: 'HISTORY_NOT_FOUND',
-              message: `History entry ${payload.entryId} not found`,
+              message: `History entry ${validated.entryId} not found`,
               timestamp: Date.now()
             }
           };
@@ -562,17 +578,18 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.HISTORY_DELETE,
     async (
       event: IpcMainInvokeEvent,
-      payload: HistoryDeletePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const deleted = await history.deleteEntry(payload.entryId);
+        const validated = validateIpcPayload(HistoryDeletePayloadSchema, payload, 'HISTORY_DELETE');
+        const deleted = await history.deleteEntry(validated.entryId);
         return {
           success: deleted,
           error: deleted
             ? undefined
             : {
                 code: 'HISTORY_NOT_FOUND',
-                message: `History entry ${payload.entryId} not found`,
+                message: `History entry ${validated.entryId} not found`,
                 timestamp: Date.now()
               }
         };
@@ -595,23 +612,24 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     IPC_CHANNELS.HISTORY_RESTORE,
     async (
       event: IpcMainInvokeEvent,
-      payload: HistoryRestorePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const data = await history.loadConversation(payload.entryId);
+        const validated = validateIpcPayload(HistoryRestorePayloadSchema, payload, 'HISTORY_RESTORE');
+        const data = await history.loadConversation(validated.entryId);
         if (!data) {
           return {
             success: false,
             error: {
               code: 'HISTORY_NOT_FOUND',
-              message: `History entry ${payload.entryId} not found`,
+              message: `History entry ${validated.entryId} not found`,
               timestamp: Date.now()
             }
           };
         }
 
         const workingDir =
-          payload.workingDirectory || data.entry.workingDirectory;
+          validated.workingDirectory || data.entry.workingDirectory;
         const displayName = `${data.entry.displayName} (restored)`;
         let resumeFailed = false;
 

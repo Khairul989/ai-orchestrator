@@ -5,16 +5,17 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  StatsRecordSessionStartPayload,
-  StatsRecordSessionEndPayload,
-  StatsRecordMessagePayload,
-  StatsRecordToolUsagePayload,
-  StatsGetPayload,
-  StatsGetSessionPayload,
-  StatsExportPayload
-} from '../../../shared/types/ipc.types';
 import { getUsageStatsManager } from '../../core/system/usage-stats';
+import {
+  validateIpcPayload,
+  StatsRecordSessionStartPayloadSchema,
+  StatsRecordSessionEndPayloadSchema,
+  StatsRecordMessagePayloadSchema,
+  StatsRecordToolUsagePayloadSchema,
+  StatsGetPayloadSchema,
+  StatsGetSessionPayloadSchema,
+  StatsExportPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 
 export function registerStatsHandlers(): void {
   const statsManager = getUsageStatsManager();
@@ -24,14 +25,15 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_RECORD_SESSION_START,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsRecordSessionStartPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(StatsRecordSessionStartPayloadSchema, payload, 'STATS_RECORD_SESSION_START');
         statsManager.recordSessionStart(
-          payload.sessionId,
-          payload.instanceId,
-          payload.agentId,
-          payload.workingDirectory
+          validated.sessionId,
+          validated.instanceId,
+          validated.agentId ?? '',
+          validated.workingDirectory
         );
         return { success: true };
       } catch (error) {
@@ -52,10 +54,11 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_RECORD_SESSION_END,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsRecordSessionEndPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        statsManager.recordSessionEnd(payload.sessionId);
+        const validated = validateIpcPayload(StatsRecordSessionEndPayloadSchema, payload, 'STATS_RECORD_SESSION_END');
+        statsManager.recordSessionEnd(validated.sessionId);
         return { success: true };
       } catch (error) {
         return {
@@ -75,14 +78,15 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_RECORD_MESSAGE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsRecordMessagePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(StatsRecordMessagePayloadSchema, payload, 'STATS_RECORD_MESSAGE');
         statsManager.recordMessage(
-          payload.sessionId,
-          payload.inputTokens,
-          payload.outputTokens,
-          payload.cost
+          validated.sessionId,
+          validated.inputTokens ?? 0,
+          validated.outputTokens ?? 0,
+          validated.cost ?? 0
         );
         return { success: true };
       } catch (error) {
@@ -103,10 +107,11 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_RECORD_TOOL_USAGE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsRecordToolUsagePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        statsManager.recordToolUsage(payload.sessionId, payload.tool);
+        const validated = validateIpcPayload(StatsRecordToolUsagePayloadSchema, payload, 'STATS_RECORD_TOOL_USAGE');
+        statsManager.recordToolUsage(validated.sessionId, validated.tool);
         return { success: true };
       } catch (error) {
         return {
@@ -126,10 +131,11 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_GET,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsGetPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const stats = statsManager.getStats(payload.period);
+        const validated = validateIpcPayload(StatsGetPayloadSchema, payload, 'STATS_GET');
+        const stats = statsManager.getStats(validated?.period ?? 'all');
         return { success: true, data: stats };
       } catch (error) {
         return {
@@ -149,10 +155,11 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_GET_SESSION,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsGetSessionPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const stats = statsManager.getSessionStats(payload.sessionId);
+        const validated = validateIpcPayload(StatsGetSessionPayloadSchema, payload, 'STATS_GET_SESSION');
+        const stats = statsManager.getSessionStats(validated.sessionId);
         return { success: true, data: stats };
       } catch (error) {
         return {
@@ -212,11 +219,12 @@ export function registerStatsHandlers(): void {
     IPC_CHANNELS.STATS_EXPORT,
     async (
       _event: IpcMainInvokeEvent,
-      payload: StatsExportPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        statsManager.exportStats(payload.filePath, payload.period);
-        return { success: true, data: { exportPath: payload.filePath } };
+        const validated = validateIpcPayload(StatsExportPayloadSchema, payload, 'STATS_EXPORT');
+        statsManager.exportStats(validated.filePath, validated.period);
+        return { success: true, data: { exportPath: validated.filePath } };
       } catch (error) {
         return {
           success: false,

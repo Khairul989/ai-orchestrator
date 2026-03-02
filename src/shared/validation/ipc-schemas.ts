@@ -757,6 +757,555 @@ export const FileOpenPathPayloadSchema = z.object({
   path: z.string().min(1).max(4096),
 });
 
+// ============ Provider & Plugin Payloads ============
+
+export const ProviderStatusPayloadSchema = z.object({
+  providerType: z.string().min(1).max(50),
+  forceRefresh: z.boolean().optional(),
+});
+
+export const ProviderUpdateConfigPayloadSchema = z.object({
+  providerType: z.string().min(1).max(50),
+  config: z.record(z.string(), z.unknown()),
+});
+
+export const PluginsLoadPayloadSchema = z.object({
+  idOrPath: z.string().min(1).max(2000),
+  timeout: z.number().int().min(0).max(300000).optional(),
+  sandbox: z.boolean().optional(),
+});
+
+export const PluginsUnloadPayloadSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+});
+
+export const PluginsInstallPayloadSchema = z.object({
+  sourcePath: z.string().min(1).max(2000),
+});
+
+export const PluginsUninstallPayloadSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+});
+
+export const PluginsGetPayloadSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+});
+
+export const PluginsGetMetaPayloadSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+});
+
+export const PluginsCreateTemplatePayloadSchema = z.object({
+  name: z.string().min(1).max(200),
+});
+
+// ============ Session & Archive Payloads ============
+
+export const SessionForkPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  atMessageIndex: z.number().int().min(0).optional(),
+  displayName: DisplayNameSchema.optional(),
+});
+
+export const SessionExportPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  format: z.enum(['json', 'markdown']),
+});
+
+export const SessionImportPayloadSchema = z.object({
+  filePath: FilePathSchema,
+  workingDirectory: WorkingDirectorySchema,
+});
+
+export const SessionCopyToClipboardPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  format: z.enum(['json', 'markdown']),
+});
+
+export const SessionSaveToFilePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  format: z.enum(['json', 'markdown']),
+  filePath: FilePathSchema.optional(),
+});
+
+export const SessionRevealFilePayloadSchema = z.object({
+  filePath: FilePathSchema,
+});
+
+export const ArchiveSessionPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  tags: z.array(z.string().max(100)).max(50).optional(),
+});
+
+export const ArchiveListPayloadSchema = z.object({
+  beforeDate: z.number().int().nonnegative().optional(),
+  afterDate: z.number().int().nonnegative().optional(),
+  tags: z.array(z.string().max(100)).max(50).optional(),
+  searchTerm: z.string().max(500).optional(),
+}).optional();
+
+export const ArchiveRestorePayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const ArchiveDeletePayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const ArchiveGetMetaPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const ArchiveUpdateTagsPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  tags: z.array(z.string().max(100)).max(50),
+});
+
+export const ArchiveCleanupPayloadSchema = z.object({
+  maxAgeDays: z.number().int().min(1).max(3650),
+});
+
+export const HistoryListPayloadSchema = z.object({
+  limit: z.number().int().min(1).max(10000).optional(),
+  offset: z.number().int().min(0).optional(),
+  search: z.string().max(500).optional(),
+}).optional();
+
+export const HistoryLoadPayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+});
+
+export const HistoryDeletePayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+});
+
+export const HistoryRestorePayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+  workingDirectory: WorkingDirectorySchema.optional(),
+});
+
+// ============ Stats Payloads ============
+
+export const StatsRecordSessionStartPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  instanceId: InstanceIdSchema,
+  agentId: z.string().max(100).optional(),
+  workingDirectory: WorkingDirectorySchema,
+});
+
+export const StatsRecordSessionEndPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const StatsRecordMessagePayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  inputTokens: z.number().int().min(0).optional(),
+  outputTokens: z.number().int().min(0).optional(),
+  cost: z.number().min(0).optional(),
+});
+
+export const StatsRecordToolUsagePayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  tool: z.string().min(1).max(200),
+});
+
+export const StatsGetPayloadSchema = z.object({
+  period: z.enum(['day', 'week', 'month', 'all']).optional(),
+});
+
+export const StatsGetSessionPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const StatsExportPayloadSchema = z.object({
+  filePath: FilePathSchema,
+  period: z.enum(['day', 'week', 'month', 'all']).optional(),
+});
+
+// ============ Debug & Log Payloads ============
+
+const LogLevelSchema = z.enum(['debug', 'info', 'warn', 'error', 'fatal']);
+
+export const LogGetRecentPayloadSchema = z.object({
+  limit: z.number().int().min(1).max(10000).optional(),
+  level: LogLevelSchema.optional(),
+  subsystem: z.string().max(100).optional(),
+  startTime: z.number().int().nonnegative().optional(),
+  endTime: z.number().int().nonnegative().optional(),
+}).optional();
+
+export const LogSetLevelPayloadSchema = z.object({
+  level: LogLevelSchema,
+});
+
+export const LogSetSubsystemLevelPayloadSchema = z.object({
+  subsystem: z.string().min(1).max(100),
+  level: LogLevelSchema,
+});
+
+export const LogExportPayloadSchema = z.object({
+  filePath: FilePathSchema,
+  startTime: z.number().int().nonnegative().optional(),
+  endTime: z.number().int().nonnegative().optional(),
+});
+
+export const DebugAgentPayloadSchema = z.object({
+  agentId: z.string().min(1).max(200),
+});
+
+export const DebugConfigPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+});
+
+export const DebugFilePayloadSchema = z.object({
+  filePath: FilePathSchema,
+});
+
+export const DebugAllPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+});
+
+// ============ Search Payloads ============
+
+export const SearchSemanticPayloadSchema = z.object({
+  query: z.string().min(1).max(100000),
+  directory: DirectoryPathSchema.optional(),
+  maxResults: z.number().int().min(1).max(1000).optional(),
+  includePatterns: z.array(z.string().max(500)).max(100).optional(),
+  excludePatterns: z.array(z.string().max(500)).max(100).optional(),
+  searchType: z.enum(['semantic', 'keyword', 'hybrid']).optional(),
+});
+
+export const SearchBuildIndexPayloadSchema = z.object({
+  directory: DirectoryPathSchema,
+  includePatterns: z.array(z.string().max(500)).max(100).optional(),
+  excludePatterns: z.array(z.string().max(500)).max(100).optional(),
+});
+
+export const SearchConfigureExaPayloadSchema = z.object({
+  apiKey: z.string().max(500).optional(),
+  baseUrl: z.string().url().max(2000).optional(),
+});
+
+// ============ Supervision Payloads ============
+
+const SupervisionStrategySchema = z.enum(['one-for-one', 'one-for-all', 'rest-for-one']);
+const SupervisionOnExhaustedSchema = z.enum(['stop', 'restart', 'escalate']);
+
+const SupervisionBackoffSchema = z.object({
+  minDelayMs: z.number().int().min(0).optional(),
+  maxDelayMs: z.number().int().min(0).optional(),
+  factor: z.number().min(1).optional(),
+  jitter: z.boolean().optional(),
+});
+
+const SupervisionHealthCheckSchema = z.object({
+  intervalMs: z.number().int().min(0).optional(),
+  timeoutMs: z.number().int().min(0).optional(),
+  unhealthyThreshold: z.number().int().min(1).optional(),
+});
+
+const SupervisionConfigSchema = z.object({
+  strategy: SupervisionStrategySchema.optional(),
+  maxRestarts: z.number().int().min(0).max(1000).optional(),
+  maxTime: z.number().int().min(0).optional(),
+  onExhausted: SupervisionOnExhaustedSchema.optional(),
+  backoff: SupervisionBackoffSchema.optional(),
+  healthCheck: SupervisionHealthCheckSchema.optional(),
+}).optional();
+
+export const SupervisionCreateTreePayloadSchema = z.object({
+  config: SupervisionConfigSchema,
+});
+
+export const SupervisionGetTreePayloadSchema = z.object({
+  instanceId: InstanceIdSchema.optional(),
+});
+
+export const SupervisionGetHealthPayloadSchema = z.object({
+  instanceId: InstanceIdSchema.optional(),
+}).optional();
+
+export const SupervisionHandleFailurePayloadSchema = z.object({
+  childInstanceId: InstanceIdSchema,
+  error: z.string().max(10000),
+});
+
+// ============ Recent Directories Payloads ============
+
+export const RecentDirsGetPayloadSchema = z.object({
+  limit: z.number().int().min(1).max(1000).optional(),
+  sortBy: z.enum(['recent', 'frequent', 'pinned']).optional(),
+  includePinned: z.boolean().optional(),
+}).optional();
+
+export const RecentDirsAddPayloadSchema = z.object({
+  path: DirectoryPathSchema,
+});
+
+export const RecentDirsRemovePayloadSchema = z.object({
+  path: DirectoryPathSchema,
+});
+
+export const RecentDirsPinPayloadSchema = z.object({
+  path: DirectoryPathSchema,
+  pinned: z.boolean(),
+});
+
+export const RecentDirsClearPayloadSchema = z.object({
+  keepPinned: z.boolean().optional(),
+}).optional();
+
+// ============ MCP Payloads ============
+
+export const McpServerPayloadSchema = z.object({
+  serverId: z.string().min(1).max(200),
+});
+
+export const McpAddServerPayloadSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+  description: z.string().max(500).optional(),
+  transport: z.enum(['stdio', 'sse', 'http']),
+  command: z.string().max(2000).optional(),
+  args: z.array(z.string().max(1000)).max(50).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  url: z.string().url().max(2000).optional(),
+  autoConnect: z.boolean().optional(),
+});
+
+export const McpCallToolPayloadSchema = z.object({
+  serverId: z.string().min(1).max(200),
+  toolName: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const McpReadResourcePayloadSchema = z.object({
+  serverId: z.string().min(1).max(200),
+  uri: z.string().min(1).max(2000),
+});
+
+export const McpGetPromptPayloadSchema = z.object({
+  serverId: z.string().min(1).max(200),
+  promptName: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.string()).optional(),
+});
+
+// ============ LSP Payloads ============
+
+export const LspPositionPayloadSchema = z.object({
+  filePath: FilePathSchema,
+  line: z.number().int().min(0).max(1000000),
+  character: z.number().int().min(0).max(100000),
+});
+
+export const LspFindReferencesPayloadSchema = z.object({
+  filePath: FilePathSchema,
+  line: z.number().int().min(0).max(1000000),
+  character: z.number().int().min(0).max(100000),
+  includeDeclaration: z.boolean().optional(),
+});
+
+export const LspFilePayloadSchema = z.object({
+  filePath: FilePathSchema,
+});
+
+export const LspWorkspaceSymbolPayloadSchema = z.object({
+  query: z.string().min(0).max(1000),
+  rootPath: DirectoryPathSchema.optional(),
+});
+
+// ============ Codebase Search Payloads ============
+
+export const CodebaseSearchPayloadSchema = z.object({
+  options: z.object({
+    query: z.string().min(1).max(100000),
+    storeId: StoreIdSchema,
+    topK: z.number().int().min(1).max(1000).optional(),
+    bm25Weight: z.number().min(0).max(1).optional(),
+    vectorWeight: z.number().min(0).max(1).optional(),
+    useHyDE: z.boolean().optional(),
+  }),
+});
+
+export const CodebaseSearchSymbolsPayloadSchema = z.object({
+  storeId: StoreIdSchema,
+  query: z.string().min(1).max(100000),
+});
+
+// ============ User Action Request Payloads ============
+
+export const UserActionRequestPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  action: z.string().min(1).max(200),
+  description: z.string().min(1).max(10000),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const MemoryLoadHistoryPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  limit: z.number().int().min(1).max(10000).optional(),
+});
+
+// ============ Worktree & Verification Payloads ============
+
+export const WorktreeCreatePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  taskDescription: z.string().min(1).max(10000),
+  baseBranch: z.string().max(500).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const WorktreeSessionPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const WorktreeMergePayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  strategy: z.string().max(50).optional(),
+  commitMessage: z.string().max(1000).optional(),
+});
+
+export const WorktreeAbandonPayloadSchema = z.object({
+  sessionId: SessionIdSchema,
+  reason: z.string().max(1000).optional(),
+});
+
+export const WorktreeDetectConflictsPayloadSchema = z.object({
+  sessionIds: z.array(SessionIdSchema).min(1).max(50),
+});
+
+export const VerifyStartPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  prompt: z.string().min(1).max(500000),
+  context: z.string().max(500000).optional(),
+  taskType: z.string().max(100).optional(),
+  config: z.object({
+    minAgents: z.number().int().min(1).max(16).optional(),
+    synthesisStrategy: z.string().max(50).optional(),
+    personalities: z.array(z.string().max(100)).max(16).optional(),
+    confidenceThreshold: z.number().min(0).max(1).optional(),
+    timeoutMs: z.number().int().min(1000).max(3600000).optional(),
+    maxDebateRounds: z.number().int().min(1).max(10).optional(),
+  }).optional(),
+});
+
+export const VerifyGetResultPayloadSchema = z.object({
+  verificationId: z.string().min(1).max(200),
+});
+
+export const VerifyCancelPayloadSchema = z.object({
+  verificationId: z.string().min(1).max(200),
+});
+
+export const VerifyConfigurePayloadSchema = z.object({
+  config: z.object({
+    minAgents: z.number().int().min(1).max(16).optional(),
+    synthesisStrategy: z.string().max(50).optional(),
+    confidenceThreshold: z.number().min(0).max(1).optional(),
+    timeoutMs: z.number().int().min(1000).max(3600000).optional(),
+  }),
+});
+
+// ============ Observation Payloads ============
+
+export const ObservationConfigurePayloadSchema = z.object({
+  maxObservations: z.number().int().min(1).max(1000000).optional(),
+  decayRate: z.number().min(0).max(1).optional(),
+  minConfidence: z.number().min(0).max(1).optional(),
+  reflectionIntervalMs: z.number().int().min(0).optional(),
+  enabled: z.boolean().optional(),
+}).optional();
+
+export const ObservationGetReflectionsPayloadSchema = z.object({
+  minConfidence: z.number().min(0).max(1).optional(),
+  limit: z.number().int().min(1).max(10000).optional(),
+}).optional();
+
+export const ObservationGetObservationsPayloadSchema = z.object({
+  since: z.number().int().nonnegative().optional(),
+  limit: z.number().int().min(1).max(10000).optional(),
+}).optional();
+
+// ============ LLM Payloads ============
+
+export const LLMSummarizePayloadSchema = z.object({
+  requestId: z.string().min(1).max(200),
+  content: z.string().min(1).max(10000000),
+  targetTokens: z.number().int().min(1).max(1000000).optional(),
+  preserveKeyPoints: z.boolean().optional(),
+});
+
+export const LLMSubQueryPayloadSchema = z.object({
+  requestId: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(1000000),
+  context: z.string().max(1000000).optional().default(''),
+  depth: z.number().int().min(0).max(10).optional(),
+});
+
+export const LLMCancelStreamPayloadSchema = z.object({
+  requestId: z.string().min(1).max(200),
+});
+
+export const LLMCountTokensPayloadSchema = z.object({
+  text: z.string().max(10000000),
+  model: z.string().max(200).optional(),
+});
+
+export const LLMTruncateTokensPayloadSchema = z.object({
+  text: z.string().max(10000000),
+  maxTokens: z.number().int().min(1).max(1000000),
+  model: z.string().max(200).optional(),
+});
+
+export const LLMSetConfigPayloadSchema = z.object({
+  anthropicApiKey: z.string().max(500).optional(),
+  openaiApiKey: z.string().max(500).optional(),
+  model: z.string().max(200).optional(),
+  maxTokens: z.number().int().min(1).max(1000000).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+}).passthrough();
+
+// ============ CLI Verification Payloads ============
+
+export const CliDetectOnePayloadSchema = z.object({
+  command: z.string().min(1).max(200),
+});
+
+export const CliTestConnectionPayloadSchema = z.object({
+  command: z.string().min(1).max(200),
+});
+
+export const ProviderListModelsPayloadSchema = z.object({
+  provider: z.string().min(1).max(100),
+});
+
+export const CliVerificationStartPayloadSchema = z.object({
+  id: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(500000),
+  context: z.string().max(500000).optional(),
+  attachments: z.array(z.object({
+    name: z.string().max(500),
+    mimeType: z.string().max(100),
+    data: z.string().max(50 * 1024 * 1024), // base64 encoded, 50MB limit
+  })).max(10).optional(),
+  config: z.object({
+    cliAgents: z.array(z.string().max(100)).max(20).optional(),
+    agentCount: z.number().int().min(1).max(20).optional(),
+    synthesisStrategy: z.string().max(50).optional(),
+    personalities: z.array(z.string().max(100)).max(20).optional(),
+    confidenceThreshold: z.number().min(0).max(1).optional(),
+    timeout: z.number().int().min(1000).max(3600000).optional(),
+    maxDebateRounds: z.number().int().min(1).max(10).optional(),
+    fallbackToApi: z.boolean().optional(),
+    mixedMode: z.boolean().optional(),
+  }),
+});
+
+export const CliVerificationCancelPayloadSchema = z.object({
+  id: z.string().min(1).max(200),
+});
+
 // ============ Validation Helper ============
 
 /**

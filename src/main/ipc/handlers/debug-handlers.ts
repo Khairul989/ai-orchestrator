@@ -5,18 +5,19 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  LogGetRecentPayload,
-  LogSetLevelPayload,
-  LogSetSubsystemLevelPayload,
-  LogExportPayload,
-  DebugAgentPayload,
-  DebugConfigPayload,
-  DebugFilePayload,
-  DebugAllPayload
-} from '../../../shared/types/ipc.types';
 import { getDebugCommandsManager } from '../../core/system/debug-commands';
 import { getLogManager } from '../../logging/logger';
+import {
+  validateIpcPayload,
+  LogGetRecentPayloadSchema,
+  LogSetLevelPayloadSchema,
+  LogSetSubsystemLevelPayloadSchema,
+  LogExportPayloadSchema,
+  DebugAgentPayloadSchema,
+  DebugConfigPayloadSchema,
+  DebugFilePayloadSchema,
+  DebugAllPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 
 /**
  * Map log level string to LogLevel type
@@ -44,15 +45,16 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.LOG_GET_RECENT,
     async (
       _event: IpcMainInvokeEvent,
-      payload: LogGetRecentPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(LogGetRecentPayloadSchema, payload, 'LOG_GET_RECENT');
         const logs = logManager.getRecentLogs({
-          limit: payload?.limit,
-          level: payload?.level ? mapLogLevel(payload.level) : undefined,
-          subsystem: payload?.subsystem,
-          startTime: payload?.startTime,
-          endTime: payload?.endTime
+          limit: validated?.limit,
+          level: validated?.level ? mapLogLevel(validated.level) : undefined,
+          subsystem: validated?.subsystem,
+          startTime: validated?.startTime,
+          endTime: validated?.endTime
         });
         return { success: true, data: logs };
       } catch (error) {
@@ -93,10 +95,11 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.LOG_SET_LEVEL,
     async (
       _event: IpcMainInvokeEvent,
-      payload: LogSetLevelPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        logManager.setGlobalLevel(mapLogLevel(payload.level));
+        const validated = validateIpcPayload(LogSetLevelPayloadSchema, payload, 'LOG_SET_LEVEL');
+        logManager.setGlobalLevel(mapLogLevel(validated.level));
         return { success: true };
       } catch (error) {
         return {
@@ -116,12 +119,13 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.LOG_SET_SUBSYSTEM_LEVEL,
     async (
       _event: IpcMainInvokeEvent,
-      payload: LogSetSubsystemLevelPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(LogSetSubsystemLevelPayloadSchema, payload, 'LOG_SET_SUBSYSTEM_LEVEL');
         logManager.setSubsystemLevel(
-          payload.subsystem,
-          mapLogLevel(payload.level)
+          validated.subsystem,
+          mapLogLevel(validated.level)
         );
         return { success: true };
       } catch (error) {
@@ -162,14 +166,15 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.LOG_EXPORT,
     async (
       _event: IpcMainInvokeEvent,
-      payload: LogExportPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        logManager.exportLogs(payload.filePath, {
-          startTime: payload.startTime,
-          endTime: payload.endTime
+        const validated = validateIpcPayload(LogExportPayloadSchema, payload, 'LOG_EXPORT');
+        logManager.exportLogs(validated.filePath, {
+          startTime: validated.startTime,
+          endTime: validated.endTime
         });
-        return { success: true, data: { filePath: payload.filePath } };
+        return { success: true, data: { filePath: validated.filePath } };
       } catch (error) {
         return {
           success: false,
@@ -232,10 +237,11 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.DEBUG_AGENT,
     async (
       _event: IpcMainInvokeEvent,
-      payload: DebugAgentPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const result = await debugManager.debugAgent(payload.agentId);
+        const validated = validateIpcPayload(DebugAgentPayloadSchema, payload, 'DEBUG_AGENT');
+        const result = await debugManager.debugAgent(validated.agentId);
         return { success: true, data: result };
       } catch (error) {
         return {
@@ -255,11 +261,12 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.DEBUG_CONFIG,
     async (
       _event: IpcMainInvokeEvent,
-      payload: DebugConfigPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(DebugConfigPayloadSchema, payload, 'DEBUG_CONFIG');
         const result = await debugManager.debugConfig(
-          payload.workingDirectory
+          validated.workingDirectory
         );
         return { success: true, data: result };
       } catch (error) {
@@ -280,10 +287,11 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.DEBUG_FILE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: DebugFilePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const result = await debugManager.debugFile(payload.filePath);
+        const validated = validateIpcPayload(DebugFilePayloadSchema, payload, 'DEBUG_FILE');
+        const result = await debugManager.debugFile(validated.filePath);
         return { success: true, data: result };
       } catch (error) {
         return {
@@ -363,10 +371,11 @@ export function registerDebugHandlers(): void {
     IPC_CHANNELS.DEBUG_ALL,
     async (
       _event: IpcMainInvokeEvent,
-      payload: DebugAllPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const result = await debugManager.debugAll(payload.workingDirectory);
+        const validated = validateIpcPayload(DebugAllPayloadSchema, payload, 'DEBUG_ALL');
+        const result = await debugManager.debugAll(validated.workingDirectory);
         return { success: true, data: result };
       } catch (error) {
         return {
