@@ -78,6 +78,10 @@ export interface ActiveDebate {
   config: DebateConfig;
   query: string;
   context?: string;
+  /** Originating instance ID for provider routing */
+  instanceId?: string;
+  /** Explicit provider override for LLM invocation */
+  provider?: string;
   currentRound: number;
   rounds: DebateSessionRound[];
   startTime: number;

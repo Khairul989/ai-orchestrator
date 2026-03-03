@@ -705,6 +705,27 @@ export const IPC_CHANNELS = {
   PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
   PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
   PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
+
+  // Event forwarding channels (main → renderer)
+  DEBATE_EVENT_STARTED: 'debate:event:started',
+  DEBATE_EVENT_ROUND_COMPLETE: 'debate:event:round-complete',
+  DEBATE_EVENT_COMPLETED: 'debate:event:completed',
+  DEBATE_EVENT_ERROR: 'debate:event:error',
+  DEBATE_EVENT_PAUSED: 'debate:event:paused',
+  DEBATE_EVENT_RESUMED: 'debate:event:resumed',
+
+  VERIFICATION_EVENT_STARTED: 'verification:event:started',
+  VERIFICATION_EVENT_PROGRESS: 'verification:event:progress',
+  VERIFICATION_EVENT_COMPLETED: 'verification:event:completed',
+  VERIFICATION_EVENT_ERROR: 'verification:event:error',
+
+  TRAINING_EVENT_STARTED: 'training:event:started',
+  TRAINING_EVENT_COMPLETED: 'training:event:completed',
+  TRAINING_EVENT_ERROR: 'training:event:error',
+
+  HOT_SWITCH_EVENT_STARTED: 'hot-switch:event:started',
+  HOT_SWITCH_EVENT_COMPLETED: 'hot-switch:event:completed',
+  HOT_SWITCH_EVENT_FAILED: 'hot-switch:event:failed',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

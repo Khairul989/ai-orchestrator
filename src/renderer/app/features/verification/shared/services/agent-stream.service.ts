@@ -339,48 +339,44 @@ export class AgentStreamService implements OnDestroy {
 
   private setupIpcListeners(): void {
     // Listen for agent stream events from main process
-    const unsubStart = this.ipc.on(
-      'verification:agent-start',
+    const unsubStart = this.ipc.getApi()?.onVerificationAgentStart(
       (rawData: unknown) => {
         const data = rawData as { sessionId: string; agentId: string; name: string };
         if (data.sessionId === this.state().sessionId) {
           this.startAgentStream(data.agentId, data.name);
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubStart);
 
-    const unsubStream = this.ipc.on(
-      'verification:agent-stream',
+    const unsubStream = this.ipc.getApi()?.onVerificationAgentStream(
       (rawData: unknown) => {
         const data = rawData as { sessionId: string; agentId: string; chunk: string };
         if (data.sessionId === this.state().sessionId) {
           this.appendChunk(data.agentId, data.chunk);
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubStream);
 
-    const unsubComplete = this.ipc.on(
-      'verification:agent-complete',
+    const unsubComplete = this.ipc.getApi()?.onVerificationAgentComplete(
       (rawData: unknown) => {
         const data = rawData as { sessionId: string; response: { agentId: string; tokens?: number } };
         if (data.sessionId === this.state().sessionId) {
           this.completeAgentStream(data.response.agentId, data.response.tokens);
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubComplete);
 
-    const unsubError = this.ipc.on(
-      'verification:agent-error',
+    const unsubError = this.ipc.getApi()?.onVerificationAgentError(
       (rawData: unknown) => {
         const data = rawData as { sessionId: string; agentId: string; error: string };
         if (data.sessionId === this.state().sessionId) {
           this.errorAgentStream(data.agentId, data.error);
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubError);
   }
 

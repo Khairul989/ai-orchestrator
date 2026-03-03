@@ -720,8 +720,8 @@ export class SessionContinuityManager extends EventEmitter {
           const stat = fs.statSync(path.join(dir, file));
           diskUsageBytes += stat.size;
         }
-      } catch {
-        // Ignore errors
+      } catch (error) {
+        logger.warn('Failed to calculate disk usage for session directory', { dir, error: error instanceof Error ? error.message : String(error) });
       }
     }
 

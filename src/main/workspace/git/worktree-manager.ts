@@ -507,7 +507,7 @@ export class WorktreeManager extends EventEmitter {
       this.emit('worktree:cleaned', session);
     } catch (error) {
       // Cleanup failed, but don't throw
-      console.error(`Failed to cleanup worktree ${worktreeId}:`, error);
+      logger.error('Failed to cleanup worktree', error instanceof Error ? error : undefined, { worktreeId });
     }
   }
 

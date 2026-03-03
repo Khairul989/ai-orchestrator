@@ -89,7 +89,7 @@ export class VerificationService {
 
     try {
       if (sessionId) {
-        await this.ipc.invoke('verification:cancel', { id: sessionId });
+        await this.ipc.getApi()?.verificationCancel({ id: sessionId });
       } else {
         await this.store.cancelVerification();
       }

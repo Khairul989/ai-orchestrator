@@ -47,35 +47,12 @@ export class VerificationSessionStore {
     this.stateService.addSession(session);
     this.stateService.setSelectedTab('monitor');
 
-    // Convert files to base64 attachments
-    let attachments: { name: string; mimeType: string; data: string }[] | undefined;
-    if (files && files.length > 0) {
-      attachments = await Promise.all(
-        files.map(async (file) => {
-          const buffer = await file.arrayBuffer();
-          const base64 = btoa(
-            new Uint8Array(buffer).reduce(
-              (data, byte) => data + String.fromCharCode(byte),
-              ''
-            )
-          );
-          return {
-            name: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            data: base64,
-          };
-        })
-      );
-    }
-
     // Start verification via IPC
     try {
-      await this.ipc.invoke('verification:start-cli', {
+      await this.ipc.getApi()?.verificationStartCli({
         id: sessionId,
         prompt,
         context,
-        workingDirectory,
-        attachments,
         config: {
           cliAgents: config.cliAgents,
           agentCount: config.agentCount,
@@ -103,7 +80,7 @@ export class VerificationSessionStore {
     if (!session) return;
 
     try {
-      await this.ipc.invoke('verification:cancel', { id: session.id });
+      await this.ipc.getApi()?.verificationCancel({ id: session.id });
       this.stateService.updateSessionStatus(session.id, 'cancelled');
     } catch (error) {
       console.error('Failed to cancel verification:', error);

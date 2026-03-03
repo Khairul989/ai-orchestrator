@@ -302,14 +302,11 @@ class AIOrchestratorApp {
           // Send structured continuity package as the first message to re-seed context
           await this.instanceManager.sendInput(instanceId, continuityPrompt);
 
-          console.log(
-            `[CompactionCoordinator] restart-with-summary completed for ${instanceId}`,
-            { reductionRatio: compactionResult.reductionRatio }
-          );
+          logger.info('restart-with-summary compaction completed', { instanceId, reductionRatio: compactionResult.reductionRatio });
 
           return true;
         } catch (error) {
-          console.error('Restart-with-summary compaction failed:', error);
+          logger.error('Restart-with-summary compaction failed', error instanceof Error ? error : undefined);
           return false;
         } finally {
           compactor.clear();

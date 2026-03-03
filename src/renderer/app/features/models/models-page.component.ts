@@ -48,11 +48,6 @@ interface ModelInfo {
         </button>
       </div>
 
-      <!-- Backend notice -->
-      <div class="notice-banner">
-        Some model management features require backend handler registration.
-      </div>
-
       <!-- Metric cards -->
       <div class="metrics-row">
         <div class="metric-card">

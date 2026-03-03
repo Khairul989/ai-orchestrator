@@ -69,12 +69,6 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
         </button>
       </header>
 
-      <!-- Notice banner -->
-      <div class="notice-banner">
-        <span class="notice-icon">&#9432;</span>
-        Some observation features may not be connected to backend services yet.
-      </div>
-
       <!-- Metric cards -->
       <section class="metrics-grid">
         <div class="metric-card">

@@ -20,7 +20,6 @@ import {
 import { ElectronIpcService } from '../../core/services/ipc';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
-import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
 import type { RecentDirectoriesOptions } from '../../../../shared/types/recent-directories.types';
 
 type EcosystemKind = 'command' | 'agent' | 'tool' | 'plugin';
@@ -677,7 +676,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
       void this.reload();
     });
 
-    this.unsubscribeChanged = this.ipc.on(IPC_CHANNELS.ECOSYSTEM_CHANGED, (payload: unknown) => {
+    this.unsubscribeChanged = this.ipc.getApi()?.onEcosystemChanged((payload: unknown) => {
       const wd = (payload as EcosystemChangedEventPayload | undefined)?.workingDirectory;
       if (!wd || wd !== this.workingDirectory()) return;
       // Debounce reloads to avoid thrashing during saves.
@@ -685,7 +684,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
       this.reloadTimer = setTimeout(() => {
         void this.reload();
       }, 300);
-    });
+    }) ?? null;
   }
 
   ngOnDestroy(): void {
@@ -695,7 +694,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
       // ignore
     }
     if (this.watchWorkingDirectory) {
-      void this.ipc.invoke(IPC_CHANNELS.ECOSYSTEM_WATCH_STOP, { workingDirectory: this.watchWorkingDirectory });
+      void this.ipc.getApi()?.ecosystemWatchStop({ workingDirectory: this.watchWorkingDirectory! });
     }
   }
 
@@ -739,12 +738,9 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     this.loading.set(true);
     this.error.set(null);
     try {
-      const response = await this.ipc.invoke<{ workingDirectory: string } & EcosystemListResponse>(
-        IPC_CHANNELS.ECOSYSTEM_LIST,
-        { workingDirectory: wd }
-      );
-      if (!response.success) {
-        this.error.set(response.error?.message || 'Failed to load ecosystem');
+      const response = await this.ipc.getApi()?.ecosystemList({ workingDirectory: wd });
+      if (!response?.success) {
+        this.error.set(response?.error?.message || 'Failed to load ecosystem');
         return;
       }
       this.ecosystem.set(response.data as unknown as EcosystemListResponse);
@@ -769,9 +765,9 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     this.watchWorkingDirectory = wd;
     try {
       if (prev) {
-        await this.ipc.invoke(IPC_CHANNELS.ECOSYSTEM_WATCH_STOP, { workingDirectory: prev });
+        await this.ipc.getApi()?.ecosystemWatchStop({ workingDirectory: prev });
       }
-      await this.ipc.invoke(IPC_CHANNELS.ECOSYSTEM_WATCH_START, { workingDirectory: wd });
+      await this.ipc.getApi()?.ecosystemWatchStart({ workingDirectory: wd });
     } catch {
       // ignore
     }
@@ -847,16 +843,14 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     const p = this.selectedFilePath();
     if (!p) return;
     try {
-      const resp = await this.ipc.invoke<FileReadTextResponse>(
-        IPC_CHANNELS.FILE_READ_TEXT,
-        { path: p, maxBytes: 1024 * 1024 }
-      );
-      if (!resp.success || !resp.data) {
-        this.error.set(resp.error?.message || 'Failed to read file');
+      const resp = await this.ipc.getApi()?.readTextFile(p);
+      if (!resp?.success || !resp.data) {
+        this.error.set(resp?.error?.message || 'Failed to read file');
         return;
       }
-      this.fileContent.set(resp.data.content || '');
-      this.fileTruncated.set(Boolean(resp.data.truncated));
+      const fileData = resp.data as FileReadTextResponse;
+      this.fileContent.set(fileData.content || '');
+      this.fileTruncated.set(Boolean(fileData.truncated));
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
     }
@@ -873,12 +867,11 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     this.saving.set(true);
     this.error.set(null);
     try {
-      const resp = await this.ipc.invoke(
-        IPC_CHANNELS.FILE_WRITE_TEXT,
+      const resp = await this.ipc.getApi()?.writeTextFile(
         { path: p, content: this.fileContent(), createDirs: false }
       );
-      if (!resp.success) {
-        this.error.set(resp.error?.message || 'Failed to write file');
+      if (!resp?.success) {
+        this.error.set(resp?.error?.message || 'Failed to write file');
         return;
       }
       await this.reload();
@@ -890,7 +883,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
   }
 
   async openPath(p: string): Promise<void> {
-    await this.ipc.invoke(IPC_CHANNELS.FILE_OPEN_PATH, { path: p });
+    await this.ipc.getApi()?.openPath(p);
   }
 
   async openContainingFolder(p: string): Promise<void> {
@@ -980,13 +973,13 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
 
     if (!filePath) return;
 
-    const resp = await this.ipc.invoke(IPC_CHANNELS.FILE_WRITE_TEXT, {
+    const resp = await this.ipc.getApi()?.writeTextFile({
       path: filePath,
       content,
       createDirs: true,
     });
-    if (!resp.success) {
-      this.error.set(resp.error?.message || `Failed to create ${kind}`);
+    if (!resp?.success) {
+      this.error.set(resp?.error?.message || `Failed to create ${kind}`);
       return;
     }
 

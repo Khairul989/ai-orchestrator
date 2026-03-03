@@ -9,6 +9,9 @@ import * as path from 'path';
 import { app } from 'electron';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('SettingsManager');
 
 /**
  * Legacy app name for migration purposes
@@ -71,7 +74,7 @@ export class SettingsManager extends EventEmitter {
     const currentModel = this.store.get('defaultModel');
     if (currentModel && MODEL_MIGRATION[currentModel]) {
       const newModel = MODEL_MIGRATION[currentModel];
-      console.log(`[SettingsManager] Migrating defaultModel: '${currentModel}' → '${newModel}'`);
+      logger.info('Migrating defaultModel', { currentModel, newModel });
       this.store.set('defaultModel', newModel);
     }
   }
@@ -112,7 +115,7 @@ export class SettingsManager extends EventEmitter {
       const legacySettingsPath = path.join(legacyUserData, 'settings.json');
       if (fs.existsSync(legacySettingsPath)) {
         fs.copyFileSync(legacySettingsPath, currentSettingsPath);
-        console.log('[SettingsManager] Migrated settings from legacy app');
+        logger.info('Migrated settings from legacy app');
       }
 
       // Migrate recent directories
@@ -120,7 +123,7 @@ export class SettingsManager extends EventEmitter {
       const currentRecentDirs = path.join(currentUserData, 'recent-directories.json');
       if (fs.existsSync(legacyRecentDirs) && !fs.existsSync(currentRecentDirs)) {
         fs.copyFileSync(legacyRecentDirs, currentRecentDirs);
-        console.log('[SettingsManager] Migrated recent directories from legacy app');
+        logger.info('Migrated recent directories from legacy app');
       }
 
       // Migrate history database
@@ -128,7 +131,7 @@ export class SettingsManager extends EventEmitter {
       const currentHistory = path.join(currentUserData, 'history.db');
       if (fs.existsSync(legacyHistory) && !fs.existsSync(currentHistory)) {
         fs.copyFileSync(legacyHistory, currentHistory);
-        console.log('[SettingsManager] Migrated history database from legacy app');
+        logger.info('Migrated history database from legacy app');
       }
 
       // Migrate RLM database
@@ -136,12 +139,12 @@ export class SettingsManager extends EventEmitter {
       const currentRlm = path.join(currentUserData, 'rlm.db');
       if (fs.existsSync(legacyRlm) && !fs.existsSync(currentRlm)) {
         fs.copyFileSync(legacyRlm, currentRlm);
-        console.log('[SettingsManager] Migrated RLM database from legacy app');
+        logger.info('Migrated RLM database from legacy app');
       }
 
-      console.log('[SettingsManager] Migration from claude-orchestrator complete');
+      logger.info('Migration from claude-orchestrator complete');
     } catch (error) {
-      console.warn('[SettingsManager] Migration failed (non-critical):', error);
+      logger.warn('Migration failed (non-critical)', { error: String(error) });
     }
   }
 

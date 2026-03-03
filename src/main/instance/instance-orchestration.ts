@@ -11,6 +11,8 @@ import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
 import { getModelRouter, type RoutingDecision } from '../routing';
 import { getUnifiedMemory } from '../memory';
+import { getHabitTracker } from '../learning/habit-tracker';
+import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
 import type {
   SpawnChildCommand,
@@ -307,7 +309,7 @@ export class InstanceOrchestrationManager {
               data = JSON.parse(jsonMatch[0]);
             }
           } catch (e) {
-            // Ignore parse errors
+            logger.warn('Failed to parse JSON data from orchestration response', { error: e instanceof Error ? e.message : String(e) });
           }
 
           const friendlyContent = this.buildFriendlyOrchestrationMessage(action, status, data);
@@ -486,6 +488,22 @@ export class InstanceOrchestrationManager {
         confidence: recommendation.confidence,
         reason: `Outcome-driven routing for "${recommendation.taskType}"`
       };
+    }
+
+    // Consult user preference store as fallback
+    try {
+      const preferredModel = getPreferenceStore().get<string>('model.default');
+      if (preferredModel) {
+        return {
+          model: preferredModel,
+          complexity: 'moderate',
+          tier: router.getModelTier(preferredModel),
+          confidence: 0.5,
+          reason: 'User preference store default model'
+        };
+      }
+    } catch {
+      // Preference store is optional
     }
 
     return router.route(task, explicitModel);
@@ -860,6 +878,20 @@ export class InstanceOrchestrationManager {
       success,
       success ? 1 : 0
     );
+
+    // Record habit for agent/model selection learning
+    try {
+      getHabitTracker().recordAction({
+        type: 'agent_selection',
+        action: child?.agentId || 'unknown',
+        context: {
+          workspaceId: child?.workingDirectory || '',
+          taskType: 'orchestration-task',
+        },
+      });
+    } catch {
+      // Habit tracking is optional
+    }
   }
 
   private findTaskForChild(

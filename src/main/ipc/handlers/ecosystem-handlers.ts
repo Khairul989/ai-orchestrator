@@ -23,6 +23,9 @@ import { getToolRegistry } from '../../tools/tool-registry';
 import { getOrchestratorPluginManager } from '../../plugins/plugin-manager';
 import { BrowserWindow } from 'electron';
 import chokidar from 'chokidar';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('EcosystemHandlers');
 
 export function registerEcosystemHandlers(instanceManager: InstanceManager): void {
   const watchers = new Map<string, import('chokidar').FSWatcher>();
@@ -129,8 +132,8 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
                 path: filePath,
                 timestamp: Date.now(),
               });
-            } catch {
-              // ignore
+            } catch (error) {
+              logger.warn('Failed to send ecosystem changed event to renderer window', { event, filePath, error: error instanceof Error ? error.message : String(error) });
             }
           }
         };

@@ -88,6 +88,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private approvedPermissions: Set<string> = new Set();
   /** Deduplicate AskUserQuestion prompts that can be emitted in multiple stream shapes */
   private emittedAskUserQuestionKeys: Set<string> = new Set();
+  /** Map tool_use ids to tool metadata for robust permission-denial parsing */
+  private toolUseContexts = new Map<string, { name: string; input: Record<string, unknown> }>();
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow = 200000;
 
@@ -744,6 +746,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             } else if (block.type === 'tool_use' && block.name) {
               const toolUseId = block.id || generateId();
               const toolInput = block.input || {};
+              this.rememberToolUse(toolUseId, block.name, toolInput);
 
               // Surface inline tool usage from assistant blocks for consistency.
               this.emit('output', {
@@ -830,10 +833,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 content: block.content
               });
 
-              // Extract the path from the message if possible
-              const pathMatch = block.content.match(/permissions to (\w+) to (.+),/);
-              const action = pathMatch?.[1] || 'access';
-              const path = pathMatch?.[2] || 'a file';
+              const { action, path } = this.extractPermissionDetails(
+                block.content,
+                block.tool_use_id
+              );
 
               // Create a unique key for this permission request to avoid duplicate prompts
               const permissionKey = `${action}:${path}`;
@@ -841,6 +844,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // Skip if we already have a pending request for this exact permission
               if (this.pendingPermissions.has(permissionKey)) {
                 logger.debug('Skipping duplicate permission prompt', { permissionKey });
+                this.forgetToolUse(block.tool_use_id);
                 break;
               }
 
@@ -859,6 +863,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                     metadata: { permissionHint: true, suggestYolo: true }
                   });
                 }
+                this.forgetToolUse(block.tool_use_id);
                 break;
               }
 
@@ -903,6 +908,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               });
 
               logger.debug('Permission denial handling complete');
+              this.forgetToolUse(block.tool_use_id);
             }
           }
           break;
@@ -965,6 +971,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         break;
 
       case 'tool_use':
+        this.rememberToolUse(message.tool.id, message.tool.name, message.tool.input);
         this.emit('output', {
           id: generateId(),
           timestamp: message.timestamp || Date.now(),
@@ -982,6 +989,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         break;
 
       case 'tool_result':
+        this.forgetToolUse(message.tool_use_id);
         this.emit('output', {
           id: generateId(),
           timestamp: message.timestamp || Date.now(),
@@ -1170,6 +1178,111 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         return value.trim();
       }
     }
+    return undefined;
+  }
+
+  private rememberToolUse(
+    toolUseId: string | undefined,
+    toolName: string | undefined,
+    input: unknown
+  ): void {
+    if (!toolUseId || !toolName) {
+      return;
+    }
+    const normalizedInput =
+      input && typeof input === 'object'
+        ? (input as Record<string, unknown>)
+        : {};
+    this.toolUseContexts.set(toolUseId, {
+      name: toolName,
+      input: normalizedInput
+    });
+  }
+
+  private forgetToolUse(toolUseId: string | undefined): void {
+    if (!toolUseId) {
+      return;
+    }
+    this.toolUseContexts.delete(toolUseId);
+  }
+
+  private extractPermissionDetails(
+    content: string,
+    toolUseId: string | undefined
+  ): { action: string; path: string } {
+    const normalizedContent = content.replace(/\s+/g, ' ').trim();
+
+    let action: string | undefined;
+    let path: string | undefined;
+
+    const patterns: RegExp[] = [
+      /permissions to (\w+) to (.+?)(?:,|$)/i,
+      /permissions to (\w+) on (.+?)(?:,|$)/i,
+      /permissions to (\w+) for (.+?)(?:,|$)/i,
+      /permission to (\w+) (.+?)(?:,|$)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = normalizedContent.match(pattern);
+      if (match) {
+        action = match[1]?.trim().toLowerCase();
+        path = match[2]?.trim();
+        if (action && path) {
+          break;
+        }
+      }
+    }
+
+    const toolContext = toolUseId ? this.toolUseContexts.get(toolUseId) : undefined;
+    if (toolContext) {
+      if (!action) {
+        action = toolContext.name.toLowerCase();
+      }
+      if (!path) {
+        path = this.extractPermissionTargetFromToolInput(toolContext.input);
+      }
+    }
+
+    if (!action) {
+      action = 'access';
+    }
+    if (!path) {
+      path = 'a file';
+    }
+
+    return {
+      action,
+      path
+    };
+  }
+
+  private extractPermissionTargetFromToolInput(input: Record<string, unknown>): string | undefined {
+    const preferredKeys = [
+      'file_path',
+      'path',
+      'filepath',
+      'target_file',
+      'target',
+      'destination',
+      'command',
+      'cmd',
+      'url',
+      'uri'
+    ];
+
+    for (const key of preferredKeys) {
+      const value = input[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+
+    for (const value of Object.values(input)) {
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+
     return undefined;
   }
 }

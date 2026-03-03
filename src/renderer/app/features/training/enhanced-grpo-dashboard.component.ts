@@ -548,45 +548,46 @@ export class EnhancedGrpoDashboardComponent implements OnInit, OnDestroy {
   async refreshData(): Promise<void> {
     try {
       // Fetch all data in parallel
+      const api = this.ipc.getApi();
       const [statsResult, rewardResult, advantageResult, strategiesResult, agentResult, patternsResult, insightsResult] = await Promise.all([
-        this.ipc.invoke('training:get-stats'),
-        this.ipc.invoke('training:get-reward-data', { limit: 500 }),
-        this.ipc.invoke('training:get-advantage-data'),
-        this.ipc.invoke('training:get-strategies'),
-        this.ipc.invoke('training:get-agent-performance'),
-        this.ipc.invoke('training:get-patterns', { limit: 20 }),
-        this.ipc.invoke('training:get-insights'),
+        api?.trainingGetStats(),
+        api?.trainingGetRewardData({ limit: 500 }),
+        api?.trainingGetAdvantageData(),
+        api?.trainingGetStrategies(),
+        api?.trainingGetAgentPerformance(),
+        api?.trainingGetPatterns({ limit: 20 }),
+        api?.trainingGetInsights(),
       ]);
 
-      if (statsResult.success && statsResult.data) {
+      if (statsResult?.success && statsResult.data) {
         const data = statsResult.data as DashboardStats;
         this.stats.set(data);
         this.isTrainingActive.set(data.totalEpisodes > 0);
       }
 
-      if (rewardResult.success && rewardResult.data) {
+      if (rewardResult?.success && rewardResult.data) {
         this.rewardData.set(rewardResult.data as RewardDataPoint[]);
       }
 
-      if (advantageResult.success && advantageResult.data) {
+      if (advantageResult?.success && advantageResult.data) {
         this.advantageData.set(advantageResult.data as AdvantageDataPoint[]);
       }
 
-      if (strategiesResult.success && strategiesResult.data) {
+      if (strategiesResult?.success && strategiesResult.data) {
         this.strategies.set(strategiesResult.data as StrategyPerformance[]);
       }
 
-      if (agentResult.success && agentResult.data) {
+      if (agentResult?.success && agentResult.data) {
         this.agentTaskData.set(agentResult.data as AgentTaskMetric[]);
       }
 
-      if (patternsResult.success && patternsResult.data) {
+      if (patternsResult?.success && patternsResult.data) {
         const patterns = patternsResult.data as PatternData[];
         this.patterns.set(patterns);
         this.updatePatternDistribution(patterns);
       }
 
-      if (insightsResult.success && insightsResult.data) {
+      if (insightsResult?.success && insightsResult.data) {
         this.insights.set(insightsResult.data as LearningInsight[]);
       }
     } catch (error) {
@@ -612,7 +613,7 @@ export class EnhancedGrpoDashboardComponent implements OnInit, OnDestroy {
 
   async applyInsight(insight: LearningInsight): Promise<void> {
     try {
-      await this.ipc.invoke('training:apply-insight', { insightId: insight.id });
+      await this.ipc.getApi()?.trainingApplyInsight({ insightId: insight.id });
       this.refreshData();
     } catch (error) {
       console.error('Failed to apply insight:', error);
@@ -621,7 +622,7 @@ export class EnhancedGrpoDashboardComponent implements OnInit, OnDestroy {
 
   async dismissInsight(insight: LearningInsight): Promise<void> {
     try {
-      await this.ipc.invoke('training:dismiss-insight', { insightId: insight.id });
+      await this.ipc.getApi()?.trainingDismissInsight({ insightId: insight.id });
       // Remove from local state immediately for better UX
       this.insights.update(list => list.filter(i => i.id !== insight.id));
     } catch (error) {
@@ -631,7 +632,7 @@ export class EnhancedGrpoDashboardComponent implements OnInit, OnDestroy {
 
   async onConfigChange(newConfig: GRPOConfig): Promise<void> {
     try {
-      await this.ipc.invoke('training:update-config', { config: newConfig });
+      await this.ipc.getApi()?.trainingUpdateConfig({ config: newConfig as unknown as Record<string, unknown> });
       this.config.set(newConfig);
     } catch (error) {
       console.error('Failed to update config:', error);

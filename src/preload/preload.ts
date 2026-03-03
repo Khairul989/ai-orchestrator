@@ -490,11 +490,138 @@ const IPC_CHANNELS = {
   VERIFICATION_START_CLI: 'verification:start-cli',
   VERIFICATION_CANCEL: 'verification:cancel',
   VERIFICATION_GET_ACTIVE: 'verification:get-active',
-  VERIFICATION_GET_RESULT: 'verification:get-result'
+  VERIFICATION_GET_RESULT: 'verification:get-result',
+
+  // Observation Memory
+  OBSERVATION_GET_STATS: 'observation:get-stats',
+  OBSERVATION_GET_REFLECTIONS: 'observation:get-reflections',
+  OBSERVATION_GET_OBSERVATIONS: 'observation:get-observations',
+  OBSERVATION_CONFIGURE: 'observation:configure',
+  OBSERVATION_GET_CONFIG: 'observation:get-config',
+  OBSERVATION_FORCE_REFLECT: 'observation:force-reflect',
+  OBSERVATION_CLEANUP: 'observation:cleanup',
+
+  // A/B Testing
+  AB_CREATE_EXPERIMENT: 'ab:create-experiment',
+  AB_GET_EXPERIMENT: 'ab:get-experiment',
+  AB_LIST_EXPERIMENTS: 'ab:list-experiments',
+  AB_START_EXPERIMENT: 'ab:start-experiment',
+  AB_PAUSE_EXPERIMENT: 'ab:pause-experiment',
+  AB_COMPLETE_EXPERIMENT: 'ab:complete-experiment',
+  AB_GET_VARIANT: 'ab:get-variant',
+  AB_RECORD_OUTCOME: 'ab:record-outcome',
+  AB_GET_RESULTS: 'ab:get-results',
+  AB_GET_WINNER: 'ab:get-winner',
+  AB_GET_STATS: 'ab:get-stats',
+  AB_CONFIGURE: 'ab:configure',
+
+  // Model Discovery
+  MODEL_DISCOVER: 'model:discover',
+  MODEL_VERIFY: 'model:verify',
+  MODEL_SET_OVERRIDE: 'model:set-override',
+  MODEL_REMOVE_OVERRIDE: 'model:remove-override',
+
+  // LLM Service
+  LLM_COUNT_TOKENS: 'llm:count-tokens',
+  LLM_STREAM_CHUNK: 'llm:stream-chunk',
+
+  // Consensus
+  CONSENSUS_QUERY: 'consensus:query',
+  CONSENSUS_ABORT: 'consensus:abort',
+  CONSENSUS_GET_ACTIVE: 'consensus:get-active',
+
+  // Model Routing
+  ROUTING_GET_CONFIG: 'routing:get-config',
+  ROUTING_UPDATE_CONFIG: 'routing:update-config',
+  ROUTING_PREVIEW: 'routing:preview',
+  ROUTING_GET_TIER: 'routing:get-tier',
+
+  // Hot Model Switching
+  HOT_SWITCH_GET_CONFIG: 'hot-switch:get-config',
+  HOT_SWITCH_UPDATE_CONFIG: 'hot-switch:update-config',
+  HOT_SWITCH_PERFORM: 'hot-switch:perform',
+  HOT_SWITCH_GET_STATS: 'hot-switch:get-stats',
+
+  // Cross-Instance Communication
+  COMM_CREATE_BRIDGE: 'comm:create-bridge',
+  COMM_DELETE_BRIDGE: 'comm:delete-bridge',
+  COMM_GET_BRIDGES: 'comm:get-bridges',
+  COMM_SEND_MESSAGE: 'comm:send-message',
+  COMM_GET_MESSAGES: 'comm:get-messages',
+  COMM_SUBSCRIBE: 'comm:subscribe',
+  COMM_REQUEST_TOKEN: 'comm:request-token',
+
+  // Parallel Worktrees
+  PARALLEL_WORKTREE_START: 'parallel-worktree:start',
+  PARALLEL_WORKTREE_GET_STATUS: 'parallel-worktree:get-status',
+  PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
+  PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
+  PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
+
+  // Ecosystem (file-based extensibility)
+  ECOSYSTEM_LIST: 'ecosystem:list',
+  ECOSYSTEM_WATCH_START: 'ecosystem:watch-start',
+  ECOSYSTEM_WATCH_STOP: 'ecosystem:watch-stop',
+  ECOSYSTEM_CHANGED: 'ecosystem:changed',
+
+  // File text operations
+  FILE_READ_TEXT: 'file:read-text',
+  FILE_WRITE_TEXT: 'file:write-text',
+
+  // Editor (extended)
+  EDITOR_OPEN_FILE: 'editor:open-file',
+  EDITOR_OPEN_FILE_AT_LINE: 'editor:open-file-at-line',
+  EDITOR_OPEN_DIRECTORY: 'editor:open-directory',
+  EDITOR_SET_PREFERRED: 'editor:set-preferred',
+  EDITOR_GET_PREFERRED: 'editor:get-preferred',
+
+  // Debate (streaming control)
+  DEBATE_PAUSE: 'debate:pause',
+  DEBATE_RESUME: 'debate:resume',
+  DEBATE_STOP: 'debate:stop',
+  DEBATE_INTERVENE: 'debate:intervene',
+  DEBATE_EVENT: 'debate:event',
+
+  // Verification (streaming events)
+  VERIFICATION_AGENT_START: 'verification:agent-start',
+  VERIFICATION_AGENT_STREAM: 'verification:agent-stream',
+  VERIFICATION_AGENT_COMPLETE: 'verification:agent-complete',
+  VERIFICATION_AGENT_ERROR: 'verification:agent-error',
+  VERIFICATION_ROUND_PROGRESS: 'verification:round-progress',
+  VERIFICATION_CONSENSUS_UPDATE: 'verification:consensus-update',
+  VERIFICATION_COMPLETE: 'verification:complete',
+  VERIFICATION_ERROR: 'verification:error',
+
+  // RLM (push events)
+  RLM_STORE_UPDATED: 'rlm:store-updated',
+  RLM_QUERY_COMPLETE: 'rlm:query-complete',
+  RLM_SECTION_ADDED: 'rlm:section-added',
+  RLM_SECTION_REMOVED: 'rlm:section-removed',
+
+  // RLM analytics
+  RLM_GET_TOKEN_SAVINGS_HISTORY: 'rlm:get-token-savings-history',
+  RLM_GET_QUERY_STATS: 'rlm:get-query-stats',
+  RLM_GET_STORAGE_STATS: 'rlm:get-storage-stats',
+
+  // Learning (extended)
+  LEARNING_GET_INSIGHTS: 'learning:get-insights',
+
+  // A/B testing (extended)
+  AB_UPDATE_EXPERIMENT: 'ab:update-experiment',
+  AB_DELETE_EXPERIMENT: 'ab:delete-experiment',
+
+  // Training (extended)
+  TRAINING_GET_REWARD_DATA: 'training:get-reward-data',
+  TRAINING_GET_ADVANTAGE_DATA: 'training:get-advantage-data',
+  TRAINING_GET_STRATEGIES: 'training:get-strategies',
+  TRAINING_GET_AGENT_PERFORMANCE: 'training:get-agent-performance',
+  TRAINING_GET_PATTERNS: 'training:get-patterns',
+  TRAINING_GET_INSIGHTS: 'training:get-insights',
+  TRAINING_APPLY_INSIGHT: 'training:apply-insight',
+  TRAINING_DISMISS_INSIGHT: 'training:dismiss-insight',
+  TRAINING_UPDATE_CONFIG: 'training:update-config'
 } as const;
 
-// Build whitelist of all known channel values for runtime validation
-const ALLOWED_CHANNELS = new Set<string>(Object.values(IPC_CHANNELS));
 
 // Response type
 interface IpcResponse {
@@ -1029,6 +1156,112 @@ const electronAPI = {
    */
   openDocsFile: (filename: string): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_DOCS, { filename });
+  },
+
+  /**
+   * Read a text file
+   */
+  readTextFile: (path: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_TEXT, { path });
+  },
+
+  /**
+   * Write a text file
+   */
+  writeTextFile: (payload: {
+    path: string;
+    content: string;
+    createDirs?: boolean;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.FILE_WRITE_TEXT, payload);
+  },
+
+  // ============================================
+  // Ecosystem (file-based extensibility)
+  // ============================================
+
+  /**
+   * List ecosystem items (commands, agents, tools, plugins)
+   */
+  ecosystemList: (payload: {
+    workingDirectory: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ECOSYSTEM_LIST, payload);
+  },
+
+  /**
+   * Start watching a directory for ecosystem changes
+   */
+  ecosystemWatchStart: (payload: {
+    workingDirectory: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ECOSYSTEM_WATCH_START, payload);
+  },
+
+  /**
+   * Stop watching a directory for ecosystem changes
+   */
+  ecosystemWatchStop: (payload: {
+    workingDirectory: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ECOSYSTEM_WATCH_STOP, payload);
+  },
+
+  /**
+   * Listen for ecosystem change events
+   */
+  onEcosystemChanged: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.ECOSYSTEM_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ECOSYSTEM_CHANGED, handler);
+  },
+
+  // ============================================
+  // Editor (extended)
+  // ============================================
+
+  /**
+   * Open a file in the configured editor
+   */
+  editorOpenFile: (payload: {
+    filePath: string;
+    options?: Record<string, unknown>;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.EDITOR_OPEN_FILE, payload);
+  },
+
+  /**
+   * Open a file at a specific line in the configured editor
+   */
+  editorOpenFileAtLine: (payload: {
+    filePath: string;
+    line: number;
+    column?: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.EDITOR_OPEN_FILE_AT_LINE, payload);
+  },
+
+  /**
+   * Open a directory in the configured editor
+   */
+  editorOpenDirectory: (payload: {
+    dirPath: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.EDITOR_OPEN_DIRECTORY, payload);
+  },
+
+  /**
+   * Set the preferred editor
+   */
+  editorSetPreferred: (editorId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.EDITOR_SET_PREFERRED, { editorId });
+  },
+
+  /**
+   * Get the preferred editor
+   */
+  editorGetPreferred: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.EDITOR_GET_PREFERRED);
   },
 
   // ============================================
@@ -3133,6 +3366,44 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_GET_AGENT, { agentId });
   },
 
+  /**
+   * Start a review session
+   */
+  reviewStartSession: (payload: {
+    agentId: string;
+    instanceId: string;
+    workingDirectory: string;
+    files?: string[];
+    options?: Record<string, unknown>;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_START_SESSION, payload);
+  },
+
+  /**
+   * Get a review session
+   */
+  reviewGetSession: (sessionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_GET_SESSION, { sessionId });
+  },
+
+  /**
+   * Get issues for a review session
+   */
+  reviewGetIssues: (sessionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_GET_ISSUES, { sessionId });
+  },
+
+  /**
+   * Acknowledge a review issue
+   */
+  reviewAcknowledgeIssue: (payload: {
+    sessionId: string;
+    issueId: string;
+    action: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_ACKNOWLEDGE_ISSUE, payload);
+  },
+
   // ============================================
   // Phase 6: Hooks (6.3)
   // ============================================
@@ -3574,6 +3845,69 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.SUPERVISION_GET_HEALTH);
   },
 
+  /**
+   * Listen for supervision tree-updated events
+   */
+  onSupervisionTreeUpdated: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_TREE_UPDATED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_TREE_UPDATED, handler);
+  },
+
+  /**
+   * Listen for supervision worker-failed events
+   */
+  onSupervisionWorkerFailed: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_WORKER_FAILED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_WORKER_FAILED, handler);
+  },
+
+  /**
+   * Listen for supervision worker-restarted events
+   */
+  onSupervisionWorkerRestarted: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_WORKER_RESTARTED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_WORKER_RESTARTED, handler);
+  },
+
+  /**
+   * Listen for supervision circuit-breaker-changed events
+   */
+  onSupervisionCircuitBreakerChanged: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_CIRCUIT_BREAKER_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_CIRCUIT_BREAKER_CHANGED, handler);
+  },
+
+  /**
+   * Listen for supervision health-changed events
+   */
+  onSupervisionHealthChanged: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_HEALTH_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_HEALTH_CHANGED, handler);
+  },
+
+  /**
+   * Listen for supervision health-global events
+   */
+  onSupervisionHealthGlobal: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_HEALTH_GLOBAL, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_HEALTH_GLOBAL, handler);
+  },
+
+  /**
+   * Listen for supervision exhausted events
+   */
+  onSupervisionExhausted: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SUPERVISION_EXHAUSTED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SUPERVISION_EXHAUSTED, handler);
+  },
+
   // ============================================
   // Phase 8: RLM Context (8.1)
   // ============================================
@@ -3750,6 +4084,63 @@ const electronAPI = {
     });
   },
 
+  /**
+   * Get RLM token savings history
+   */
+  rlmGetTokenSavingsHistory: (payload?: { range?: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_TOKEN_SAVINGS_HISTORY, payload);
+  },
+
+  /**
+   * Get RLM query stats
+   */
+  rlmGetQueryStats: (payload?: { range?: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_QUERY_STATS, payload);
+  },
+
+  /**
+   * Get RLM storage stats
+   */
+  rlmGetStorageStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_STORAGE_STATS);
+  },
+
+  /**
+   * Listen for RLM store-updated events
+   */
+  onRlmStoreUpdated: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.RLM_STORE_UPDATED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RLM_STORE_UPDATED, handler);
+  },
+
+  /**
+   * Listen for RLM query-complete events
+   */
+  onRlmQueryComplete: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.RLM_QUERY_COMPLETE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RLM_QUERY_COMPLETE, handler);
+  },
+
+  /**
+   * Listen for RLM section-added events
+   */
+  onRlmSectionAdded: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.RLM_SECTION_ADDED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RLM_SECTION_ADDED, handler);
+  },
+
+  /**
+   * Listen for RLM section-removed events
+   */
+  onRlmSectionRemoved: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.RLM_SECTION_REMOVED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RLM_SECTION_REMOVED, handler);
+  },
+
   // ============================================
   // Phase 8: Learning (8.2)
   // ============================================
@@ -3818,6 +4209,13 @@ const electronAPI = {
     });
   },
 
+  /**
+   * Get learning insights
+   */
+  learningGetInsights: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.LEARNING_GET_INSIGHTS);
+  },
+
   // ============================================
   // Phase 8: Verification (8.3)
   // ============================================
@@ -3877,6 +4275,78 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_GET_RESULT, {
       verificationId
     });
+  },
+
+  /**
+   * Listen for verification agent-start events
+   */
+  onVerificationAgentStart: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_AGENT_START, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_AGENT_START, handler);
+  },
+
+  /**
+   * Listen for verification agent-stream events
+   */
+  onVerificationAgentStream: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_AGENT_STREAM, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_AGENT_STREAM, handler);
+  },
+
+  /**
+   * Listen for verification agent-complete events
+   */
+  onVerificationAgentComplete: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_AGENT_COMPLETE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_AGENT_COMPLETE, handler);
+  },
+
+  /**
+   * Listen for verification agent-error events
+   */
+  onVerificationAgentError: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_AGENT_ERROR, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_AGENT_ERROR, handler);
+  },
+
+  /**
+   * Listen for verification round-progress events
+   */
+  onVerificationRoundProgress: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_ROUND_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_ROUND_PROGRESS, handler);
+  },
+
+  /**
+   * Listen for verification consensus-update events
+   */
+  onVerificationConsensusUpdate: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_CONSENSUS_UPDATE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_CONSENSUS_UPDATE, handler);
+  },
+
+  /**
+   * Listen for verification complete events
+   */
+  onVerificationComplete: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_COMPLETE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_COMPLETE, handler);
+  },
+
+  /**
+   * Listen for verification error events
+   */
+  onVerificationError: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.VERIFICATION_ERROR, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.VERIFICATION_ERROR, handler);
   },
 
   // ============================================
@@ -4175,6 +4645,46 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_GET_STATS);
   },
 
+  /**
+   * Pause a running debate
+   */
+  debatePause: (payload: { sessionId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_PAUSE, payload);
+  },
+
+  /**
+   * Resume a paused debate
+   */
+  debateResume: (payload: { sessionId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_RESUME, payload);
+  },
+
+  /**
+   * Stop a running debate
+   */
+  debateStop: (payload: { sessionId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_STOP, payload);
+  },
+
+  /**
+   * Request human intervention in a debate
+   */
+  debateIntervene: (payload: {
+    sessionId: string;
+    message: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_INTERVENE, payload);
+  },
+
+  /**
+   * Listen for debate streaming events
+   */
+  onDebateEvent: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.DEBATE_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.DEBATE_EVENT, handler);
+  },
+
   // ============================================
   // Phase 9: Training/GRPO (9.4)
   // ============================================
@@ -4237,56 +4747,270 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_CONFIGURE, config);
   },
 
-  // ============================================
-  // Channel-Restricted IPC Methods
-  // ============================================
-
-  // Whitelist of known channels — only these are reachable from the renderer.
-  // Prevents arbitrary IPC channel invocation from compromised renderer code.
-
   /**
-   * Restricted invoke - only allows known IPC channels
+   * Get training reward data
    */
-  invoke: (channel: string, payload?: unknown): Promise<IpcResponse> => {
-    if (!ALLOWED_CHANNELS.has(channel)) {
-      return Promise.resolve({
-        success: false,
-        error: {
-          code: 'IPC_CHANNEL_DENIED',
-          message: `Unknown IPC channel: ${channel}`,
-          timestamp: Date.now()
-        }
-      });
-    }
-    return ipcRenderer.invoke(channel, payload);
+  trainingGetRewardData: (payload?: { limit?: number }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_REWARD_DATA, payload);
   },
 
   /**
-   * Restricted event listener - only allows known IPC channels
-   * Returns an unsubscribe function
+   * Get training advantage data
    */
-  on: (channel: string, callback: (data: unknown) => void): (() => void) => {
-    if (!ALLOWED_CHANNELS.has(channel)) {
-      console.warn(`Blocked subscription to unknown IPC channel: ${channel}`);
-      return () => { /* noop */ };
-    }
+  trainingGetAdvantageData: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_ADVANTAGE_DATA);
+  },
+
+  /**
+   * Get training strategies
+   */
+  trainingGetStrategies: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_STRATEGIES);
+  },
+
+  /**
+   * Get agent performance data
+   */
+  trainingGetAgentPerformance: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_AGENT_PERFORMANCE);
+  },
+
+  /**
+   * Get training patterns
+   */
+  trainingGetPatterns: (payload?: { limit?: number }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_PATTERNS, payload);
+  },
+
+  /**
+   * Get training insights
+   */
+  trainingGetInsights: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_INSIGHTS);
+  },
+
+  /**
+   * Apply a training insight
+   */
+  trainingApplyInsight: (payload: { insightId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_APPLY_INSIGHT, payload);
+  },
+
+  /**
+   * Dismiss a training insight
+   */
+  trainingDismissInsight: (payload: { insightId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_DISMISS_INSIGHT, payload);
+  },
+
+  /**
+   * Update training configuration
+   */
+  trainingUpdateConfig: (payload: { config: Record<string, unknown> }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_UPDATE_CONFIG, payload);
+  },
+
+  // ============================================
+  // Observation Memory
+  // ============================================
+
+  observationGetStats: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_GET_STATS),
+
+  observationGetReflections: (options?: { limit?: number; minConfidence?: number }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_GET_REFLECTIONS, options),
+
+  observationGetObservations: (payload?: { limit?: number }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_GET_OBSERVATIONS, payload),
+
+  observationConfigure: (config: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_CONFIGURE, config),
+
+  observationGetConfig: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_GET_CONFIG),
+
+  observationForceReflect: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_FORCE_REFLECT),
+
+  observationCleanup: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.OBSERVATION_CLEANUP),
+
+  // ============================================
+  // A/B Testing
+  // ============================================
+
+  abCreateExperiment: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_CREATE_EXPERIMENT, payload),
+
+  abGetExperiment: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_GET_EXPERIMENT, { experimentId }),
+
+  abListExperiments: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_LIST_EXPERIMENTS),
+
+  abStartExperiment: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_START_EXPERIMENT, { experimentId }),
+
+  abPauseExperiment: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_PAUSE_EXPERIMENT, { experimentId }),
+
+  abCompleteExperiment: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_COMPLETE_EXPERIMENT, { experimentId }),
+
+  abGetVariant: (payload: { experimentId: string; sessionId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_GET_VARIANT, payload),
+
+  abRecordOutcome: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_RECORD_OUTCOME, payload),
+
+  abGetResults: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_GET_RESULTS, { experimentId }),
+
+  abGetWinner: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_GET_WINNER, { experimentId }),
+
+  abGetStats: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_GET_STATS),
+
+  abConfigure: (config: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_CONFIGURE, config),
+
+  abUpdateExperiment: (payload: { experimentId: string; updates: Record<string, unknown> }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_UPDATE_EXPERIMENT, payload),
+
+  abDeleteExperiment: (experimentId: string): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AB_DELETE_EXPERIMENT, experimentId),
+
+  // ============================================
+  // Model Discovery
+  // ============================================
+
+  modelDiscover: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MODEL_DISCOVER),
+
+  modelVerify: (payload: { modelId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MODEL_VERIFY, payload),
+
+  modelSetOverride: (payload: { modelId: string; config: Record<string, unknown> }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MODEL_SET_OVERRIDE, payload),
+
+  modelRemoveOverride: (payload: { modelId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MODEL_REMOVE_OVERRIDE, payload),
+
+  // ============================================
+  // LLM Service
+  // ============================================
+
+  llmCountTokens: (payload: { text: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_COUNT_TOKENS, payload),
+
+  onLlmStreamChunk: (callback: (data: unknown) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
-    ipcRenderer.on(channel, handler);
-    return () => ipcRenderer.removeListener(channel, handler);
+    ipcRenderer.on(IPC_CHANNELS.LLM_STREAM_CHUNK, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.LLM_STREAM_CHUNK, handler);
   },
 
-  /**
-   * Restricted one-time event listener - only allows known IPC channels
-   */
-  once: (channel: string, callback: (data: unknown) => void): void => {
-    if (!ALLOWED_CHANNELS.has(channel)) {
-      console.warn(`Blocked one-time subscription to unknown IPC channel: ${channel}`);
-      return;
-    }
-    ipcRenderer.once(channel, (_event: IpcRendererEvent, data: unknown) =>
-      callback(data)
-    );
-  },
+  // ============================================
+  // Consensus
+  // ============================================
+
+  consensusQuery: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CONSENSUS_QUERY, payload),
+
+  consensusAbort: (payload: { queryId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CONSENSUS_ABORT, payload),
+
+  consensusGetActive: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CONSENSUS_GET_ACTIVE),
+
+  // ============================================
+  // Model Routing
+  // ============================================
+
+  routingGetConfig: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ROUTING_GET_CONFIG),
+
+  routingUpdateConfig: (config: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ROUTING_UPDATE_CONFIG, config),
+
+  routingPreview: (payload: { task: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ROUTING_PREVIEW, payload),
+
+  routingGetTier: (payload: { modelId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ROUTING_GET_TIER, payload),
+
+  // ============================================
+  // Hot Model Switching
+  // ============================================
+
+  hotSwitchGetConfig: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HOT_SWITCH_GET_CONFIG),
+
+  hotSwitchUpdateConfig: (config: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HOT_SWITCH_UPDATE_CONFIG, config),
+
+  hotSwitchPerform: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HOT_SWITCH_PERFORM, payload),
+
+  hotSwitchGetStats: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HOT_SWITCH_GET_STATS),
+
+  // ============================================
+  // Cross-Instance Communication
+  // ============================================
+
+  commCreateBridge: (payload: {
+    name: string;
+    sourceInstanceId: string;
+    targetInstanceId: string;
+  }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_CREATE_BRIDGE, payload),
+
+  commDeleteBridge: (payload: { bridgeId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_DELETE_BRIDGE, payload),
+
+  commGetBridges: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_GET_BRIDGES),
+
+  commSendMessage: (payload: {
+    bridgeId: string;
+    fromInstanceId: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_SEND_MESSAGE, payload),
+
+  commGetMessages: (payload: { bridgeId: string; limit?: number }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_GET_MESSAGES, payload),
+
+  commSubscribe: (payload: { instanceId: string; bridgeId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_SUBSCRIBE, payload),
+
+  commRequestToken: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMM_REQUEST_TOKEN),
+
+  // ============================================
+  // Parallel Worktrees
+  // ============================================
+
+  parallelWorktreeStart: (payload: {
+    tasks: unknown[];
+    instanceId: string;
+    repoPath: string;
+  }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_WORKTREE_START, payload),
+
+  parallelWorktreeGetStatus: (payload: { executionId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_WORKTREE_GET_STATUS, payload),
+
+  parallelWorktreeCancel: (payload: { executionId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_WORKTREE_CANCEL, payload),
+
+  parallelWorktreeGetResults: (payload: { executionId: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_WORKTREE_GET_RESULTS, payload),
+
+  parallelWorktreeList: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_WORKTREE_LIST),
 
   // ============================================
   // Platform Info

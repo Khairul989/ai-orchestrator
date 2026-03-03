@@ -13,6 +13,19 @@ import {
 } from '@angular/core';
 import { CommonModule, DatePipe, DecimalPipe, PercentPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import type { ElectronAPI } from '../../../../preload/preload';
+
+// Extend the global Window type so we can use window.electronAPI with full typing
+declare global {
+  interface Window {
+    electronAPI: ElectronAPI;
+  }
+}
+
+/** Convenience accessor for the typed Electron API */
+function getElectronApi(): ElectronAPI | undefined {
+  return typeof window !== 'undefined' ? window.electronAPI : undefined;
+}
 
 // ============================================
 // Types
@@ -1142,7 +1155,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadExperiments(): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:list-experiments') as { success: boolean; data?: Experiment[] };
+      const response = await getElectronApi()?.abListExperiments() as { success: boolean; data?: Experiment[] } | undefined;
       if (response?.success && response.data) {
         this.experiments.set(response.data);
 
@@ -1161,7 +1174,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadExperimentResults(experimentId: string): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:get-results', experimentId) as { success: boolean; data?: ExperimentResult[] };
+      const response = await getElectronApi()?.abGetResults(experimentId) as { success: boolean; data?: ExperimentResult[] } | undefined;
       if (response?.success && response.data) {
         const current = this.experimentResults();
         const newMap = new Map(current);
@@ -1175,7 +1188,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadExperimentWinner(experimentId: string): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:get-winner', experimentId) as { success: boolean; data?: ExperimentWinner | null };
+      const response = await getElectronApi()?.abGetWinner(experimentId) as { success: boolean; data?: ExperimentWinner | null } | undefined;
       if (response?.success && response.data) {
         const current = this.experimentWinners();
         const newMap = new Map(current);
@@ -1189,7 +1202,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadStats(): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:get-stats') as { success: boolean; data?: ExperimentStats };
+      const response = await getElectronApi()?.abGetStats() as { success: boolean; data?: ExperimentStats } | undefined;
       if (response?.success && response.data) {
         this.stats.set(response.data);
       }
@@ -1201,7 +1214,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
   // Experiment Actions
   async startExperiment(experimentId: string): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:start-experiment', experimentId) as { success: boolean };
+      const response = await getElectronApi()?.abStartExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1212,7 +1225,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async pauseExperiment(experimentId: string): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:pause-experiment', experimentId) as { success: boolean };
+      const response = await getElectronApi()?.abPauseExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1223,7 +1236,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async completeExperiment(experimentId: string): Promise<void> {
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:complete-experiment', experimentId) as { success: boolean };
+      const response = await getElectronApi()?.abCompleteExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1236,7 +1249,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
     if (!confirm('Are you sure you want to delete this experiment?')) return;
 
     try {
-      const response = await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:delete-experiment', experimentId) as { success: boolean };
+      const response = await getElectronApi()?.abDeleteExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1336,7 +1349,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
     try {
       if (this.editingExperiment) {
-        await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:update-experiment', {
+        await getElectronApi()?.abUpdateExperiment({
           experimentId: this.editingExperiment.id,
           updates: {
             name: this.newExperiment.name,
@@ -1346,7 +1359,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
           },
         });
       } else {
-        await (window as Window & { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } }).electronAPI?.invoke('ab:create-experiment', {
+        await getElectronApi()?.abCreateExperiment({
           name: this.newExperiment.name,
           description: this.newExperiment.description,
           taskType: this.newExperiment.taskType,

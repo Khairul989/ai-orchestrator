@@ -44,6 +44,11 @@ import {
 } from './r1-memory-manager';
 import { RLMContextManager } from '../rlm/context-manager';
 import { SkillsLoader, getSkillsLoader } from './skills-loader';
+import { getHybridRetrievalManager } from './hybrid-retrieval';
+import { getProactiveSurfacer } from './proactive-surfacer';
+import { getCrossProjectLearner } from './cross-project-learner';
+import { getEpisodicStore } from './episodic-store';
+import { getProceduralStore } from './procedural-store';
 
 export class UnifiedMemoryController extends EventEmitter {
   private static instance: UnifiedMemoryController | null = null;
@@ -84,6 +89,12 @@ export class UnifiedMemoryController extends EventEmitter {
   static getInstance(): UnifiedMemoryController {
     if (!this.instance) {
       this.instance = new UnifiedMemoryController();
+      // Initialize ProactiveSurfacer with this controller
+      try {
+        getProactiveSurfacer().initialize(this.instance);
+      } catch {
+        // Surfacer is optional — don't block startup
+      }
     }
     return this.instance;
   }
@@ -337,10 +348,15 @@ export class UnifiedMemoryController extends EventEmitter {
       );
     }
 
-    // Long-term fetching (semantic similarity via Memory-R1)
+    // Long-term fetching (hybrid retrieval: semantic + BM25 + trajectory learning)
     if (types.includes('long_term') && this.config.trainingStage >= 2) {
       try {
-        const entries = await this.memoryR1.retrieve(query, taskId);
+        const hybridManager = getHybridRetrievalManager();
+        const hybridResults = await hybridManager.retrieve(query, taskId);
+        // Extract the underlying MemoryEntry objects from hybrid results
+        const entries = hybridResults
+          .map(r => r.entry)
+          .filter((e): e is MemoryEntry => !!e);
         const filteredEntries = this.filterEntriesByTags(
           entries,
           filterTags,
@@ -350,12 +366,25 @@ export class UnifiedMemoryController extends EventEmitter {
           this.stripMemoryTags(e.content)
         );
       } catch (error) {
-        this.emit('retrieve:sourceError', {
-          source: 'long_term',
-          query,
-          taskId,
-          error
-        });
+        // Fallback to direct Memory-R1 if hybrid fails
+        try {
+          const entries = await this.memoryR1.retrieve(query, taskId);
+          const filteredEntries = this.filterEntriesByTags(
+            entries,
+            filterTags,
+            options
+          );
+          results.longTerm = filteredEntries.map((e) =>
+            this.stripMemoryTags(e.content)
+          );
+        } catch (fallbackError) {
+          this.emit('retrieve:sourceError', {
+            source: 'long_term',
+            query,
+            taskId,
+            error: fallbackError
+          });
+        }
       }
     }
 
@@ -526,6 +555,13 @@ export class UnifiedMemoryController extends EventEmitter {
       this.state.episodic.sessions = this.state.episodic.sessions.slice(-MAX_EPISODIC_SESSIONS);
     }
 
+    // Delegate to EpisodicStore for richer session tracking
+    try {
+      getEpisodicStore().addSession(sessionMemory);
+    } catch {
+      // EpisodicStore is optional — don't block session recording
+    }
+
     // Learn patterns from successful sessions
     if (outcome === 'success') {
       await this.extractPatterns(sessionMemory);
@@ -533,6 +569,20 @@ export class UnifiedMemoryController extends EventEmitter {
 
     // Persist
     await this.save();
+
+    // Promote patterns to cross-project learning (gated behind enabled: false by default)
+    if (outcome === 'success') {
+      try {
+        const learner = getCrossProjectLearner();
+        if (learner.isEnabled()) {
+          for (const pattern of this.state.episodic.patterns.slice(-3)) {
+            await learner.promoteLearnedPattern(pattern);
+          }
+        }
+      } catch {
+        // Cross-project learning is optional
+      }
+    }
 
     this.invalidateSemanticCache('record-session-end');
     this.emit('session:recorded', sessionMemory);
@@ -702,6 +752,14 @@ export class UnifiedMemoryController extends EventEmitter {
     };
 
     this.state.procedural.workflows.push(workflow);
+
+    // Delegate to ProceduralStore for richer workflow tracking
+    try {
+      getProceduralStore().addWorkflow(workflow);
+    } catch {
+      // ProceduralStore is optional
+    }
+
     this.invalidateSemanticCache('record-workflow');
     this.emit('workflow:recorded', workflow);
     return workflow;
@@ -729,6 +787,13 @@ export class UnifiedMemoryController extends EventEmitter {
         outcomes: []
       };
       this.state.procedural.strategies.push(existing);
+
+      // Delegate to ProceduralStore
+      try {
+        getProceduralStore().addStrategy(existing);
+      } catch {
+        // ProceduralStore is optional
+      }
     }
 
     existing.outcomes.push({
@@ -737,6 +802,13 @@ export class UnifiedMemoryController extends EventEmitter {
       score,
       timestamp: Date.now()
     });
+
+    // Record outcome in ProceduralStore
+    try {
+      getProceduralStore().recordStrategyOutcome(existing.id, taskId, success, score);
+    } catch {
+      // ProceduralStore is optional
+    }
 
     this.invalidateSemanticCache('record-strategy');
     this.emit('strategy:recorded', existing);
@@ -1138,13 +1210,41 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   getSessionHistory(limit?: number): SessionMemory[] {
-    const sessions = [...this.state.episodic.sessions];
+    // Merge inline state with EpisodicStore
+    const sessionMap = new Map<string, SessionMemory>();
+    for (const s of this.state.episodic.sessions) {
+      sessionMap.set(s.sessionId, s);
+    }
+    try {
+      for (const s of getEpisodicStore().getRecentSessions(limit ?? 100)) {
+        if (!sessionMap.has(s.sessionId)) {
+          sessionMap.set(s.sessionId, s);
+        }
+      }
+    } catch {
+      // EpisodicStore is optional
+    }
+    const sessions = [...sessionMap.values()];
     sessions.sort((a, b) => b.timestamp - a.timestamp);
     return limit ? sessions.slice(0, limit) : sessions;
   }
 
   getPatterns(minSuccessRate?: number): LearnedPattern[] {
-    const patterns = [...this.state.episodic.patterns];
+    // Merge inline patterns with EpisodicStore patterns
+    const patternMap = new Map<string, LearnedPattern>();
+    for (const p of this.state.episodic.patterns) {
+      patternMap.set(p.id, p);
+    }
+    try {
+      for (const p of getEpisodicStore().queryPatterns({})) {
+        if (!patternMap.has(p.id)) {
+          patternMap.set(p.id, p);
+        }
+      }
+    } catch {
+      // EpisodicStore is optional
+    }
+    const patterns = [...patternMap.values()];
     if (minSuccessRate !== undefined) {
       return patterns.filter((p) => p.successRate >= minSuccessRate);
     }
@@ -1152,11 +1252,39 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   getWorkflows(): WorkflowMemory[] {
-    return [...this.state.procedural.workflows];
+    // Merge inline state with ProceduralStore
+    const workflowMap = new Map<string, WorkflowMemory>();
+    for (const w of this.state.procedural.workflows) {
+      workflowMap.set(w.id, w);
+    }
+    try {
+      for (const w of getProceduralStore().queryWorkflows({})) {
+        if (!workflowMap.has(w.id)) {
+          workflowMap.set(w.id, w);
+        }
+      }
+    } catch {
+      // ProceduralStore is optional
+    }
+    return [...workflowMap.values()];
   }
 
   getStrategies(): StrategyMemory[] {
-    return [...this.state.procedural.strategies];
+    // Merge inline state with ProceduralStore
+    const strategyMap = new Map<string, StrategyMemory>();
+    for (const s of this.state.procedural.strategies) {
+      strategyMap.set(s.id, s);
+    }
+    try {
+      for (const s of getProceduralStore().queryStrategies({})) {
+        if (!strategyMap.has(s.id)) {
+          strategyMap.set(s.id, s);
+        }
+      }
+    } catch {
+      // ProceduralStore is optional
+    }
+    return [...strategyMap.values()];
   }
 }
 

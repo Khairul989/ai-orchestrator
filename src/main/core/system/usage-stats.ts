@@ -7,6 +7,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('UsageStats');
 
 /**
  * Time period for statistics
@@ -130,7 +133,7 @@ export class UsageStatsManager {
           const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
           this.dailyStats.set(dateStr, data);
         } catch (error) {
-          console.error(`Failed to load stats for ${dateStr}:`, error);
+          logger.error('Failed to load stats', error instanceof Error ? error : undefined, { dateStr });
         }
       }
     }
@@ -142,7 +145,7 @@ export class UsageStatsManager {
         const data = JSON.parse(fs.readFileSync(toolUsagePath, 'utf-8'));
         this.toolUsage = new Map(Object.entries(data));
       } catch (error) {
-        console.error('Failed to load tool usage stats:', error);
+        logger.error('Failed to load tool usage stats', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -158,7 +161,7 @@ export class UsageStatsManager {
     try {
       fs.writeFileSync(filePath, JSON.stringify(stats, null, 2));
     } catch (error) {
-      console.error(`Failed to save stats for ${dateStr}:`, error);
+      logger.error('Failed to save stats', error instanceof Error ? error : undefined, { dateStr });
     }
   }
 
@@ -171,7 +174,7 @@ export class UsageStatsManager {
       const data = Object.fromEntries(this.toolUsage);
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     } catch (error) {
-      console.error('Failed to save tool usage stats:', error);
+      logger.error('Failed to save tool usage stats', error instanceof Error ? error : undefined);
     }
   }
 
@@ -481,7 +484,7 @@ export class UsageStatsManager {
         }
       }
     } catch (error) {
-      console.error('Failed to calculate storage usage:', error);
+      logger.error('Failed to calculate storage usage', error instanceof Error ? error : undefined);
     }
 
     return { files, totalBytes };

@@ -26,6 +26,9 @@ import * as path from 'path';
 import { app } from 'electron';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('PluginManager');
 
 export interface OrchestratorPluginContext {
   instanceManager: InstanceManager;
@@ -120,8 +123,8 @@ export class OrchestratorPluginManager {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       delete require.cache[require.resolve(filePath)];
-    } catch {
-      // ignore
+    } catch (error) {
+      logger.warn('Failed to clear module cache for plugin file', { filePath, error: error instanceof Error ? error.message : String(error) });
     }
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require(filePath);

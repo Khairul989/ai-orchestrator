@@ -19,6 +19,7 @@ export * from './memory-r1.types';
 export * from './unified-memory.types';
 export * from './debate.types';
 export * from './unified-cli-response';
+export * from './cli-detection.types';
 export * from './verification-ui.types';
 export * from './error-recovery.types';
 export * from './codebase.types';

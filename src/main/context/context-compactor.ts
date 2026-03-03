@@ -9,9 +9,7 @@
  */
 
 import { EventEmitter } from 'events';
-import Anthropic from '@anthropic-ai/sdk';
-import { CLAUDE_MODELS } from '../../shared/types/provider.types';
-import { getTokenCounter } from '../rlm/token-counter';
+import { getLLMService, type LLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
 
 const compactorLogger = getLogger('ContextCompactor');
@@ -95,7 +93,7 @@ const DEFAULT_CONFIG: CompactionConfig = {
   triggerThreshold: 0.85,
   targetReduction: 0.5,
   preserveRecent: 5,
-  summaryModel: CLAUDE_MODELS.HAIKU,
+  summaryModel: 'default',
   toolCallRetention: 'results_only',
   maxContextTokens: 200000,
   autoCompact: true,
@@ -104,10 +102,16 @@ const DEFAULT_CONFIG: CompactionConfig = {
 export class ContextCompactor extends EventEmitter {
   private static instance: ContextCompactor | null = null;
   private config: CompactionConfig;
-  private anthropic: Anthropic | null = null;
+  private llmService: LLMService | null = null;
   private state: ContextState;
   private compactionHistory: CompactionResult[] = [];
   private compactionInProgress = false;
+  private metrics = {
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    totalTokensSaved: 0,
+  };
 
   private constructor() {
     super();
@@ -132,10 +136,12 @@ export class ContextCompactor extends EventEmitter {
   }
 
   /**
-   * Initialize with API key
+   * Initialize with API key (backward-compatible).
+   * Configures the underlying LLMService with the provided key.
    */
   initialize(apiKey: string): void {
-    this.anthropic = new Anthropic({ apiKey });
+    this.llmService = getLLMService();
+    this.llmService.configure({ anthropicApiKey: apiKey });
     this.emit('initialized');
   }
 
@@ -373,15 +379,40 @@ export class ContextCompactor extends EventEmitter {
       const newTotalTokens = summaryTokens + preservedTokens;
 
       // Phase 3: Post-compaction verification
+      this.metrics.attempts++;
+
       if (newTotalTokens >= originalTokens) {
-        compactorLogger.warn('Post-compaction verification failed: tokens did not decrease', {
+        this.metrics.failures++;
+        compactorLogger.warn('Post-compaction verification failed: tokens did not decrease — discarding result', {
           originalTokens,
           newTotalTokens,
           summaryTokens,
           preservedTokens,
         });
-        // Still apply the compaction but log the anomaly
+        const failedResult: CompactionResult = {
+          originalTokens,
+          compactedTokens: originalTokens,
+          reductionRatio: 0,
+          turnsRemoved: 0,
+          turnsPreserved: this.state.turns.length,
+          summaryGenerated: false,
+          timestamp: Date.now(),
+        };
+        this.emit('compaction-failed', failedResult);
+        return failedResult;
       }
+
+      const reductionPct = (originalTokens - newTotalTokens) / originalTokens;
+      if (reductionPct < 0.10) {
+        compactorLogger.warn('Marginal compaction: tokens reduced by less than 10%', {
+          originalTokens,
+          newTotalTokens,
+          reductionPct: (reductionPct * 100).toFixed(1) + '%',
+        });
+      }
+
+      this.metrics.successes++;
+      this.metrics.totalTokensSaved += originalTokens - newTotalTokens;
 
       // Update state
       this.state.summaries.push(summary);
@@ -460,7 +491,8 @@ export class ContextCompactor extends EventEmitter {
   }
 
   /**
-   * Generate a summary of conversation turns
+   * Generate a summary of conversation turns.
+   * Uses LLMService (provider-neutral) when available, falls back to local extraction.
    */
   private async generateSummary(turns: ConversationTurn[]): Promise<ConversationSummary> {
     const conversationText = turns
@@ -469,29 +501,18 @@ export class ContextCompactor extends EventEmitter {
 
     let summaryContent: string;
 
-    if (this.anthropic) {
-      const response = await this.anthropic.messages.create({
-        model: this.config.summaryModel,
-        max_tokens: 1024,
-        system: `You are a conversation summarizer. Create a concise summary that preserves:
-- Key decisions made
-- Important information shared
-- Action items or tasks discussed
-- Any unresolved questions
+    // Lazily resolve LLMService if not yet initialized
+    const llm = this.llmService ?? getLLMService();
+    const isLlmAvailable = await llm.isAvailable();
 
-Be concise but complete. Use bullet points for clarity.`,
-        messages: [
-          {
-            role: 'user',
-            content: `Summarize this conversation:\n\n${conversationText}`,
-          },
-        ],
+    if (isLlmAvailable) {
+      const requestId = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      summaryContent = await llm.summarize({
+        requestId,
+        content: conversationText,
+        targetTokens: 500,
+        preserveKeyPoints: true,
       });
-
-      summaryContent =
-        response.content[0].type === 'text'
-          ? response.content[0].text
-          : 'Summary generation failed';
     } else {
       // Fallback: simple extraction without API
       summaryContent = this.generateLocalSummary(turns);
@@ -577,6 +598,30 @@ ${[...topics].slice(0, 5).map(t => `- ${t}`).join('\n')}`;
    */
   getCompactionHistory(): CompactionResult[] {
     return [...this.compactionHistory];
+  }
+
+  /**
+   * Get compaction metrics (attempts, successes, failures, tokens saved)
+   */
+  getMetrics(): {
+    attempts: number;
+    successes: number;
+    failures: number;
+    totalTokensSaved: number;
+    successRate: number;
+    averageTokensSavedPerSuccess: number;
+  } {
+    const successRate = this.metrics.attempts > 0
+      ? this.metrics.successes / this.metrics.attempts
+      : 0;
+    const averageTokensSavedPerSuccess = this.metrics.successes > 0
+      ? this.metrics.totalTokensSaved / this.metrics.successes
+      : 0;
+    return {
+      ...this.metrics,
+      successRate,
+      averageTokensSavedPerSuccess,
+    };
   }
 
   /**

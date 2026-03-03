@@ -5,6 +5,9 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 
+// eslint-disable-next-line @typescript-eslint/no-empty-function
+const noop = (): void => {};
+
 @Injectable({ providedIn: 'root' })
 export class MemoryIpcService {
   private base = inject(ElectronIpcService);
@@ -479,5 +482,29 @@ export class MemoryIpcService {
   async unifiedMemoryConfigure(config: Record<string, unknown>): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.unifiedMemoryConfigure(config);
+  }
+
+  // ============================================
+  // Memory Stats & Monitoring
+  // ============================================
+
+  async getMemoryStats(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.getMemoryStats();
+  }
+
+  onMemoryStatsUpdate(callback: (stats: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onMemoryStatsUpdate(callback);
+  }
+
+  onMemoryWarning(callback: (warning: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onMemoryWarning(callback);
+  }
+
+  onMemoryCritical(callback: (alert: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onMemoryCritical(callback);
   }
 }

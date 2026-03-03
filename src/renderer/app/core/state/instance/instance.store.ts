@@ -10,6 +10,7 @@
 
 import { Injectable, inject, OnDestroy, signal } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
+import { StatsIpcService } from '../../services/ipc/stats-ipc.service';
 import { UpdateBatcherService, StateUpdate } from '../../services/update-batcher.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
 import { generateActivityStatus } from '../../utils/tool-activity-map';
@@ -40,6 +41,7 @@ export class InstanceStore implements OnDestroy {
 
   // Infrastructure
   private ipc = inject(ElectronIpcService);
+  private statsIpc = inject(StatsIpcService);
   private batcher = inject(UpdateBatcherService);
   private activityDebouncer = inject(ActivityDebouncerService);
   private unsubscribes: (() => void)[] = [];
@@ -94,6 +96,13 @@ export class InstanceStore implements OnDestroy {
     this.unsubscribes.push(
       this.ipc.onInstanceCreated((data) => {
         this.listStore.addInstance(data);
+        // Record session start for stats tracking
+        const inst = data as { id?: string; sessionId?: string; agentId?: string; workingDirectory?: string };
+        if (inst.sessionId && inst.id) {
+          this.statsIpc.statsRecordSessionStart(
+            inst.sessionId, inst.id, inst.agentId || 'build', inst.workingDirectory || ''
+          ).catch(() => { /* stats recording is best-effort */ });
+        }
       })
     );
 
@@ -129,6 +138,12 @@ export class InstanceStore implements OnDestroy {
           const toolName = message.metadata['name'] as string;
           const activity = generateActivityStatus(toolName);
           this.activityDebouncer.setActivity(instanceId, activity, toolName);
+          // Record tool usage for stats
+          const inst = this.stateService.state().instances.get(instanceId);
+          if (inst?.sessionId) {
+            this.statsIpc.statsRecordToolUsage(inst.sessionId, toolName)
+              .catch(() => { /* stats recording is best-effort */ });
+          }
         }
 
         // Queue output with throttling
@@ -201,6 +216,15 @@ export class InstanceStore implements OnDestroy {
     if (newStatus === 'idle' || newStatus === 'terminated') {
       this.activityDebouncer.clearActivity(update.instanceId);
       this.outputStore.flushInstanceOutput(update.instanceId);
+    }
+
+    // Record session end for stats tracking on termination
+    if (newStatus === 'terminated') {
+      const inst = this.stateService.state().instances.get(update.instanceId);
+      if (inst?.sessionId) {
+        this.statsIpc.statsRecordSessionEnd(inst.sessionId)
+          .catch(() => { /* stats recording is best-effort */ });
+      }
     }
 
     // Track busy-since timestamps for elapsed time display

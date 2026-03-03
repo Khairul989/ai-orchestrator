@@ -45,6 +45,26 @@ declare global {
   }
 }
 
+/**
+ * Convert a channel name like "archive:session" or "workflow:list-templates"
+ * to a camelCase invoke method name like "archiveSession" / "workflowListTemplates".
+ */
+function channelToMethodName(channel: string): string {
+  // Split on ':' and '-', capitalise each part after the first
+  const parts = channel.split(/[:-]/);
+  return parts
+    .map((part, i) => i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+/**
+ * Convert a channel name like "instance:output" to an "on" listener method
+ * name like "onInstanceOutput".
+ */
+function channelToListenerName(channel: string): string {
+  return 'on' + channelToMethodName(channel).charAt(0).toUpperCase() + channelToMethodName(channel).slice(1);
+}
+
 @Injectable({ providedIn: 'root' })
 export class ElectronIpcService {
   private ngZone = inject(NgZone);
@@ -89,36 +109,57 @@ export class ElectronIpcService {
   }
 
   /**
-   * Generic invoke method for IPC calls
-   * Use this for custom/dynamic IPC channels
+   * Invoke a typed IPC channel by name.
+   *
+   * Converts the channel string (e.g. "archive:session") to a camelCase method
+   * name on the preload API (e.g. "archiveSession") and calls it.  This keeps
+   * domain services working without exposing a generic escape-hatch in the
+   * preload.
+   *
+   * If no matching typed method is found the call is silently rejected so that
+   * callers receive the same { success: false } shape they already handle.
    */
   async invoke<T = unknown>(channel: string, payload?: unknown): Promise<IpcResponse<T>> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
 
-    // Use the underlying ipcRenderer.invoke via preload
-    if ((this.api as Record<string, unknown>)['invoke']) {
-      return (this.api as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)['invoke'](channel, payload) as Promise<IpcResponse<T>>;
+    const methodName = channelToMethodName(channel);
+    const apiRecord = this.api as Record<string, unknown>;
+    const method = apiRecord[methodName];
+
+    if (typeof method === 'function') {
+      try {
+        const result = await (method as (...args: unknown[]) => Promise<unknown>).call(this.api, payload);
+        return result as IpcResponse<T>;
+      } catch (error) {
+        return { success: false, error: { message: (error as Error).message } };
+      }
     }
 
-    // Fallback: map to specific method if available
-    console.warn(`No invoke method available, channel: ${channel}`);
-    return { success: false, error: { message: `Channel not supported: ${channel}` } };
+    console.warn(`[ElectronIpcService] No typed wrapper found for channel: ${channel} (tried method: ${methodName})`);
+    return { success: false, error: { message: `No typed handler for channel: ${channel}` } };
   }
 
   /**
-   * Generic event listener for IPC events
-   * Returns an unsubscribe function
+   * Subscribe to a typed push event by channel name.
+   *
+   * Converts the channel string (e.g. "instance:output") to an "onXxx" method
+   * name on the preload API (e.g. "onInstanceOutput") and registers the
+   * callback through that typed listener.  Returns an unsubscribe function.
    */
   on(channel: string, callback: (data: unknown) => void): () => void {
     if (!this.api) return () => { /* noop */ };
 
-    if ((this.api as Record<string, unknown>)['on']) {
-      return (this.api as unknown as Record<string, (...args: unknown[]) => () => void>)['on'](channel, (data: unknown) => {
-        this.ngZone.run(() => callback(data));
-      });
+    const listenerName = channelToListenerName(channel);
+    const apiRecord = this.api as Record<string, unknown>;
+    const listener = apiRecord[listenerName];
+
+    if (typeof listener === 'function') {
+      const wrappedCallback = (data: unknown) => this.ngZone.run(() => callback(data));
+      const unsub = (listener as (cb: (data: unknown) => void) => () => void).call(this.api, wrappedCallback);
+      return typeof unsub === 'function' ? unsub : () => { /* noop */ };
     }
 
-    console.warn(`No on method available, channel: ${channel}`);
+    console.warn(`[ElectronIpcService] No typed listener found for channel: ${channel} (tried: ${listenerName})`);
     return () => { /* noop */ };
   }
 

@@ -276,6 +276,22 @@ ${ORCHESTRATION_MARKER_END}
 
 Options: \`providers\` (default: all), \`strategy\` ("majority"|"weighted"|"all"), \`timeout\` (seconds, default: 60)
 
+### Code Navigation
+
+You have LSP (Language Server Protocol) tools available via MCP. **Use them when navigating code** — they are faster and more accurate than grep/glob for understanding code structure:
+
+- \`mcp__lsp__lsp_goto_definition\` — Jump to where a symbol is defined
+- \`mcp__lsp__lsp_find_references\` — Find all usages of a symbol
+- \`mcp__lsp__lsp_hover\` — Get type info and documentation for a symbol
+- \`mcp__lsp__lsp_document_symbols\` — List all symbols in a file (functions, classes, etc.)
+- \`mcp__lsp__lsp_workspace_symbols\` — Search for symbols across the workspace
+- \`mcp__lsp__lsp_find_implementations\` — Find implementations of an interface/abstract class
+- \`mcp__lsp__lsp_type_definition\` — Jump to a symbol's type definition
+- \`mcp__lsp__lsp_call_hierarchy\` — Trace callers/callees of a function
+- \`mcp__lsp__lsp_diagnostics\` — Get compiler errors and warnings
+
+Prefer LSP tools over grep when tracing imports, finding callers, understanding types, or navigating definitions. Use grep/glob for text pattern searches and file discovery.
+
 ---
 **Model tiers:** \`fast\`, \`balanced\`, \`powerful\` (or set an explicit model ID)
 **Providers:** \`claude\`, \`codex\`, \`gemini\`, \`copilot\`, \`auto\` (default)

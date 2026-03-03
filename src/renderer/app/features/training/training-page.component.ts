@@ -22,6 +22,7 @@ import {
   TrainingStats,
 } from './grpo-dashboard.component';
 import { TrainingIpcService } from '../../core/services/ipc/training-ipc.service';
+import { MemoryIpcService } from '../../core/services/ipc/memory-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
 interface RawTrainingStats {
@@ -417,6 +418,7 @@ interface RewardTrend {
 export class TrainingPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly trainingIpc = inject(TrainingIpcService);
+  private readonly memoryIpc = inject(MemoryIpcService);
 
   readonly dashboardStats = signal<TrainingStats | null>(null);
   readonly patterns = signal<TaskPattern[]>([]);
@@ -493,8 +495,44 @@ export class TrainingPageComponent implements OnInit, OnDestroy {
       this.topStrategies.set(strategies);
       this.trend.set(trend);
 
+      // Merge learning patterns from memory service
+      const [learningPatternsResp, learningSuggestionsResp] = await Promise.all([
+        this.memoryIpc.learningGetPatterns(0.5).catch(() => ({ success: false } as IpcResponse)),
+        this.memoryIpc.learningGetSuggestions('training-dashboard', 5).catch(() => ({ success: false } as IpcResponse)),
+      ]);
+      const learningPatterns = this.unwrapData<{ id: string; pattern: string; successRate: number }[]>(learningPatternsResp, []);
+      const learningSuggestions = this.unwrapData<{ suggestion: string; confidence: number }[]>(learningSuggestionsResp, []);
+
+      const now = Date.now();
       const patterns = this.buildPatterns(strategies);
+      // Append learning patterns as additional task patterns
+      for (const lp of learningPatterns) {
+        if (!patterns.some(p => p.value === lp.pattern)) {
+          patterns.push({
+            type: 'context_selection',
+            value: lp.pattern,
+            effectiveness: lp.successRate,
+            sampleSize: 1,
+            lastUpdated: now,
+          });
+        }
+      }
+
       const insights = this.buildInsights(strategies, trend);
+      // Append learning suggestions as additional insights
+      for (const ls of learningSuggestions) {
+        insights.push({
+          id: `learn-${now}-${Math.random().toString(36).slice(2, 6)}`,
+          type: ls.confidence > 0.7 ? 'optimization' : 'recommendation',
+          description: ls.suggestion,
+          confidence: ls.confidence,
+          evidence: ['From learning service'],
+          taskTypes: ['learning'],
+          createdAt: now,
+          appliedCount: 0,
+          successRate: ls.confidence,
+        });
+      }
       const outcomes = (exportData?.outcomes || []).map((outcome, index) =>
         this.toDashboardOutcome(outcome, index)
       );

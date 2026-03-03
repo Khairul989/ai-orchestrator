@@ -1,7 +1,6 @@
 /**
  * Communication Page
  * UI for cross-instance message passing and bridge management.
- * Note: Backend comm:* handlers are not yet implemented — all operations fail gracefully.
  */
 
 import {
@@ -49,12 +48,6 @@ interface CommBridge {
         <div class="header-actions">
           <button class="btn" type="button" [disabled]="working()" (click)="refresh()">Refresh</button>
         </div>
-      </div>
-
-      <!-- Not-implemented notice banner -->
-      <div class="notice-banner">
-        Backend communication handlers are not yet implemented. This page will become functional
-        when they are registered.
       </div>
 
       <!-- Metric cards -->

@@ -117,6 +117,7 @@ export class IpcFacadeService {
 
   get isElectron() { return this.base.isElectron; }
   get platform() { return this.base.platform; }
+  getApi = this.base.getApi.bind(this.base);
   invoke = this.base.invoke.bind(this.base);
   on = this.base.on.bind(this.base);
 

@@ -24,6 +24,10 @@ import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
 import { registerObservationHandlers } from './observation-ipc-handler';
 import { RLMContextManager } from '../rlm/context-manager';
+import { getDebateCoordinator } from '../orchestration/debate-coordinator';
+import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
+import { getTrainingLoop } from '../memory/training-loop';
+import { getHotModelSwitcher } from '../routing/hot-model-switcher';
 
 // Import extracted handlers
 import {
@@ -48,7 +52,11 @@ import {
   registerCodebaseHandlers,
   registerSupervisionHandlers,
   registerRecentDirectoriesHandlers,
-  registerEcosystemHandlers
+  registerEcosystemHandlers,
+  registerConsensusHandlers,
+  registerRoutingHandlers,
+  registerCommunicationHandlers,
+  registerParallelWorktreeHandlers
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -246,9 +254,25 @@ export class IpcMainHandler {
     // Recent directories handlers
     registerRecentDirectoriesHandlers();
 
-    // Set up memory event forwarding to renderer
+    // Consensus handlers (multi-model consensus queries)
+    registerConsensusHandlers();
+
+    // Routing handlers (model routing and hot model switching)
+    registerRoutingHandlers();
+
+    // Communication handlers (cross-instance bridges and messaging)
+    registerCommunicationHandlers();
+
+    // Parallel worktree handlers (parallel execution coordination)
+    registerParallelWorktreeHandlers();
+
+    // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();
     this.setupRlmEventForwarding();
+    this.setupDebateEventForwarding();
+    this.setupVerificationEventForwarding();
+    this.setupTrainingEventForwarding();
+    this.setupHotSwitchEventForwarding();
 
     logger.info('IPC handlers registered');
   }
@@ -500,6 +524,78 @@ export class IpcMainHandler {
     });
   }
 
+
+  /**
+   * Forward debate events to renderer
+   */
+  private setupDebateEventForwarding(): void {
+    try {
+      const debate = getDebateCoordinator();
+      const send = (channel: string, data: unknown) =>
+        this.windowManager.getMainWindow()?.webContents.send(channel, data);
+
+      debate.on('debate:started', (data) => send(IPC_CHANNELS.DEBATE_EVENT_STARTED, data));
+      debate.on('debate:round-complete', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ROUND_COMPLETE, data));
+      debate.on('debate:completed', (data) => send(IPC_CHANNELS.DEBATE_EVENT_COMPLETED, data));
+      debate.on('debate:error', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ERROR, data));
+      debate.on('debate:paused', (data) => send(IPC_CHANNELS.DEBATE_EVENT_PAUSED, data));
+      debate.on('debate:resumed', (data) => send(IPC_CHANNELS.DEBATE_EVENT_RESUMED, data));
+    } catch {
+      logger.warn('DebateCoordinator not available for event forwarding');
+    }
+  }
+
+  /**
+   * Forward verification events to renderer
+   */
+  private setupVerificationEventForwarding(): void {
+    try {
+      const verify = getMultiVerifyCoordinator();
+      const send = (channel: string, data: unknown) =>
+        this.windowManager.getMainWindow()?.webContents.send(channel, data);
+
+      verify.on('verification:started', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_STARTED, data));
+      verify.on('verification:progress', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_PROGRESS, data));
+      verify.on('verification:completed', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_COMPLETED, data));
+      verify.on('verification:error', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_ERROR, data));
+    } catch {
+      logger.warn('MultiVerifyCoordinator not available for event forwarding');
+    }
+  }
+
+  /**
+   * Forward training events to renderer
+   */
+  private setupTrainingEventForwarding(): void {
+    try {
+      const training = getTrainingLoop();
+      const send = (channel: string, data: unknown) =>
+        this.windowManager.getMainWindow()?.webContents.send(channel, data);
+
+      training.on('training:started', (data) => send(IPC_CHANNELS.TRAINING_EVENT_STARTED, data));
+      training.on('training:completed', (data) => send(IPC_CHANNELS.TRAINING_EVENT_COMPLETED, data));
+      training.on('training:error', (data) => send(IPC_CHANNELS.TRAINING_EVENT_ERROR, data));
+    } catch {
+      logger.warn('TrainingLoop not available for event forwarding');
+    }
+  }
+
+  /**
+   * Forward hot model switcher events to renderer
+   */
+  private setupHotSwitchEventForwarding(): void {
+    try {
+      const switcher = getHotModelSwitcher();
+      const send = (channel: string, data: unknown) =>
+        this.windowManager.getMainWindow()?.webContents.send(channel, data);
+
+      switcher.on('switch:started', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_STARTED, data));
+      switcher.on('switch:completed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_COMPLETED, data));
+      switcher.on('switch:failed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_FAILED, data));
+    } catch {
+      logger.warn('HotModelSwitcher not available for event forwarding');
+    }
+  }
 
   private serializeInstance(instance: any): Record<string, unknown> {
     return {

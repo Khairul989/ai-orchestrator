@@ -943,10 +943,10 @@ export class RlmAnalyticsComponent implements OnInit, OnDestroy {
 
   private async loadTokenSavings(): Promise<void> {
     try {
-      const response = await this.ipc.invoke('rlm:get-token-savings-history', {
+      const response = await this.ipc.getApi()?.rlmGetTokenSavingsHistory({
         range: this.timeRange,
       });
-      if (response.success && response.data) {
+      if (response?.success && response.data) {
         this.tokenSavingsHistory.set(response.data as TokenSavingsData[]);
       }
     } catch (error) {
@@ -956,10 +956,10 @@ export class RlmAnalyticsComponent implements OnInit, OnDestroy {
 
   private async loadQueryStats(): Promise<void> {
     try {
-      const response = await this.ipc.invoke('rlm:get-query-stats', {
+      const response = await this.ipc.getApi()?.rlmGetQueryStats({
         range: this.timeRange,
       });
-      if (response.success && response.data) {
+      if (response?.success && response.data) {
         this.queryStats.set(response.data as QueryStats[]);
       }
     } catch (error) {
@@ -969,8 +969,8 @@ export class RlmAnalyticsComponent implements OnInit, OnDestroy {
 
   private async loadStorageStats(): Promise<void> {
     try {
-      const response = await this.ipc.invoke('rlm:get-storage-stats');
-      if (response.success && response.data) {
+      const response = await this.ipc.getApi()?.rlmGetStorageStats();
+      if (response?.success && response.data) {
         this.storageStats.set(response.data as StorageStats);
       }
     } catch (error) {
@@ -980,8 +980,8 @@ export class RlmAnalyticsComponent implements OnInit, OnDestroy {
 
   private async loadInsights(): Promise<void> {
     try {
-      const response = await this.ipc.invoke('learning:get-insights');
-      if (response.success && response.data) {
+      const response = await this.ipc.getApi()?.learningGetInsights();
+      if (response?.success && response.data) {
         this.insights.set(response.data as InsightData[]);
       }
     } catch (error) {

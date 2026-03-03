@@ -147,6 +147,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
+    if (message.attachments && message.attachments.length > 0) {
+      throw new Error('Codex adapter does not support attachments in orchestrator mode.');
+    }
+
     const startTime = Date.now();
     this.outputBuffer = '';
 
@@ -474,19 +478,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
-      // Build attachments for CliMessage format
-      const cliAttachments = attachments?.map(a => ({
-        type: a.type?.startsWith('image/') ? 'image' as const : 'file' as const,
-        path: a.path,
-        content: a.data,
-        mimeType: a.type,
-        name: a.name,
-      }));
-
       const cliMessage: CliMessage = {
         role: 'user',
         content: message,
-        attachments: cliAttachments,
       };
 
       // Execute the command

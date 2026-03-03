@@ -16,7 +16,7 @@ import type {
   ProviderSessionOptions,
   ProviderAttachment,
 } from '../../shared/types/provider.types';
-import type { ContextUsage, OutputMessage, InstanceStatus } from '../../shared/types/instance.types';
+import type { OutputMessage, InstanceStatus } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { generateId } from '../../shared/utils/id-generator';
 
@@ -146,21 +146,14 @@ export class CodexCliProvider extends BaseProvider {
       throw new Error('Provider not initialized');
     }
 
-    // Convert provider attachments to CLI format
-    const cliAttachments = attachments?.map((a) => ({
-      type: a.type as 'file' | 'image' | 'code',
-      name: a.name,
-      mimeType: a.mimeType,
-      content: a.data,
-    }));
-
-    const startTime = Date.now();
+    if (attachments && attachments.length > 0) {
+      throw new Error('Codex provider does not support attachments. Vision capability is disabled.');
+    }
 
     try {
       const response = await this.adapter.sendMessage({
         role: 'user',
         content: message,
-        attachments: cliAttachments,
       });
 
       // Update usage

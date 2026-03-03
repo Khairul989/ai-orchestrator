@@ -562,16 +562,16 @@ export class RlmPageComponent implements OnInit, OnDestroy {
 
   private setupEventSubscriptions(): void {
     this.subscriptions.push(
-      this.ipc.on('rlm:store-updated', (payload: unknown) => {
+      this.ipc.getApi()?.onRlmStoreUpdated((payload: unknown) => {
         const data = payload as { storeId: string; store: ContextStore };
         if (data.storeId === this.selectedStoreId()) {
           this.store.set(data.store);
         }
-      })
+      }) ?? (() => { /* noop */ })
     );
 
     this.subscriptions.push(
-      this.ipc.on('rlm:query-complete', async (payload: unknown) => {
+      this.ipc.getApi()?.onRlmQueryComplete(async (payload: unknown) => {
         const data = payload as { sessionId: string };
         const session = this.session();
         if (session && data.sessionId === session.id) {
@@ -583,7 +583,7 @@ export class RlmPageComponent implements OnInit, OnDestroy {
             this.session.set(updatedSession);
           }
         }
-      })
+      }) ?? (() => { /* noop */ })
     );
   }
 

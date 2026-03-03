@@ -43,6 +43,11 @@ import { getPolicyAdapter } from '../observation/policy-adapter';
 
 const logger = getLogger('InstanceLifecycle');
 
+// Tools that require Claude CLI's interactive terminal and auto-deny in --print mode.
+// Always disallow these so Claude doesn't attempt them and misinterpret the auto-denial
+// as user rejection. Claude will ask questions as regular text messages instead.
+const PRINT_MODE_INCOMPATIBLE_TOOLS = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'];
+
 /**
  * Dependencies required by the lifecycle manager
  */
@@ -407,8 +412,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       this.deps.ingestInitialOutputToRlm(instance, config.initialOutputBuffer);
     }
 
-    // Get disallowed tools based on agent permissions
-    const disallowedTools = getDisallowedTools(resolvedAgent.permissions);
+    // Get disallowed tools based on agent permissions + print-mode-incompatible tools
+    const disallowedTools = [...getDisallowedTools(resolvedAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
 
     // Load instruction hierarchy (skip for child instances to reduce token overhead)
     const instructionPrompts = instance.depth === 0
@@ -813,11 +818,11 @@ export class InstanceLifecycleManager extends EventEmitter {
       logger.info('Auto-exited plan mode due to agent mode change', { instanceId, newAgentId });
     }
 
-    const disallowedTools = getDisallowedTools(newAgent.permissions);
+    const disallowedTools = [...getDisallowedTools(newAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
     const defaultAllowedTools = instance.yoloMode ? undefined : [
       'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
       'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-      'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
+      'NotebookEdit', 'Skill'
     ];
 
     const cliType = await this.resolveCliTypeForInstance(instance);
@@ -942,11 +947,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     }
 
     const agent = getAgentById(instance.agentId) || getDefaultAgent();
-    const disallowedTools = getDisallowedTools(agent.permissions);
+    const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
     const allowedTools = newYoloMode ? undefined : [
       'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
       'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-      'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
+      'NotebookEdit', 'Skill'
     ];
 
     const cliType = await this.resolveCliTypeForInstance(instance);
@@ -1062,11 +1067,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
     // Resolve agent and permissions (same as toggleYoloMode)
     const agent = getAgentById(instance.agentId) || getDefaultAgent();
-    const disallowedTools = getDisallowedTools(agent.permissions);
+    const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
     const allowedTools = instance.yoloMode ? undefined : [
       'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
       'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-      'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
+      'NotebookEdit', 'Skill'
     ];
 
     const cliType = await this.resolveCliTypeForInstance(instance);

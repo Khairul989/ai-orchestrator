@@ -16,7 +16,6 @@ import {
 } from '@angular/core';
 import { ElectronIpcService } from '../../core/services/ipc';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
-import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
 import { ReviewResultsComponent } from '../review/review-results.component';
 import type {
   ReviewIssue,
@@ -376,9 +375,9 @@ export class InstanceReviewPanelComponent {
 
   async loadAgents(): Promise<void> {
     this.error.set(null);
-    const resp = await this.ipc.invoke(IPC_CHANNELS.REVIEW_LIST_AGENTS);
-    if (!resp.success) {
-      this.error.set(resp.error?.message || 'Failed to load review agents');
+    const resp = await this.ipc.getApi()?.reviewListAgents();
+    if (!resp?.success) {
+      this.error.set(resp?.error?.message || 'Failed to load review agents');
       return;
     }
     const agents = Array.isArray(resp.data)
@@ -454,14 +453,15 @@ export class InstanceReviewPanelComponent {
     this.issues.set([]);
     this.summary.set(null);
     try {
-      const resp = await this.ipc.invoke(IPC_CHANNELS.REVIEW_START_SESSION, {
+      const resp = await this.ipc.getApi()?.reviewStartSession({
+        agentId: agentIds[0],
         instanceId,
-        agentIds,
+        workingDirectory: this.workingDirectory() || '',
         files,
-        diffOnly: this.diffOnly()
+        options: { agentIds, diffOnly: this.diffOnly() }
       });
-      if (!resp.success) {
-        this.error.set(resp.error?.message || 'Failed to start review');
+      if (!resp?.success) {
+        this.error.set(resp?.error?.message || 'Failed to start review');
         this.sessionStatus.set('failed');
         return;
       }
@@ -525,9 +525,9 @@ export class InstanceReviewPanelComponent {
     const start = Date.now();
 
     while (Date.now() - start < 5 * 60 * 1000) {
-      const resp = await this.ipc.invoke(IPC_CHANNELS.REVIEW_GET_SESSION, { sessionId });
-      if (!resp.success) {
-        this.error.set(resp.error?.message || 'Failed to get review session');
+      const resp = await this.ipc.getApi()?.reviewGetSession(sessionId);
+      if (!resp?.success) {
+        this.error.set(resp?.error?.message || 'Failed to get review session');
         this.sessionStatus.set('failed');
         return;
       }
@@ -556,17 +556,17 @@ export class InstanceReviewPanelComponent {
   async acknowledgeIssue(issue: ReviewIssue): Promise<void> {
     const sessionId = this.sessionId();
     if (!sessionId) return;
-    await this.ipc.invoke(IPC_CHANNELS.REVIEW_ACKNOWLEDGE_ISSUE, {
+    await this.ipc.getApi()?.reviewAcknowledgeIssue({
       sessionId,
       issueId: issue.id,
-      acknowledged: true,
+      action: 'acknowledge',
     });
   }
 
   async openAtLine(payload: { file: string; line: number }): Promise<void> {
     const wd = this.workingDirectory();
     const filePath = payload.file.startsWith('/') ? payload.file : `${wd}/${payload.file}`;
-    await this.ipc.invoke(IPC_CHANNELS.EDITOR_OPEN_FILE_AT_LINE, {
+    await this.ipc.getApi()?.editorOpenFileAtLine({
       filePath,
       line: payload.line,
       column: 1,

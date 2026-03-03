@@ -431,8 +431,7 @@ export class RlmContextBrowserComponent implements OnInit, OnDestroy {
   // ============================================
 
   private setupEventSubscriptions(): void {
-    const unsubStoreUpdate = this.ipc.on(
-      'rlm:store-updated',
+    const unsubStoreUpdate = this.ipc.getApi()?.onRlmStoreUpdated(
       (data: unknown) => {
         const update = data as { storeId: string; store: ContextStore };
         const currentStore = this.store();
@@ -441,11 +440,10 @@ export class RlmContextBrowserComponent implements OnInit, OnDestroy {
           this.showToast('Store updated', 'info');
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.subscriptions.push(unsubStoreUpdate);
 
-    const unsubSectionAdded = this.ipc.on(
-      'rlm:section-added',
+    const unsubSectionAdded = this.ipc.getApi()?.onRlmSectionAdded(
       (data: unknown) => {
         const update = data as { storeId: string; section: ContextSection };
         const currentStore = this.store();
@@ -453,11 +451,10 @@ export class RlmContextBrowserComponent implements OnInit, OnDestroy {
           this.showToast(`Section "${update.section.name}" added`, 'success');
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.subscriptions.push(unsubSectionAdded);
 
-    const unsubSectionRemoved = this.ipc.on(
-      'rlm:section-removed',
+    const unsubSectionRemoved = this.ipc.getApi()?.onRlmSectionRemoved(
       (data: unknown) => {
         const update = data as { storeId: string; sectionId: string };
         const currentStore = this.store();
@@ -465,11 +462,10 @@ export class RlmContextBrowserComponent implements OnInit, OnDestroy {
           this.showToast('Section removed', 'info');
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.subscriptions.push(unsubSectionRemoved);
 
-    const unsubQueryComplete = this.ipc.on(
-      'rlm:query-complete',
+    const unsubQueryComplete = this.ipc.getApi()?.onRlmQueryComplete(
       (data: unknown) => {
         const result = data as { sessionId: string; queryResult: QueryResult };
         const currentSession = this.session();
@@ -477,7 +473,7 @@ export class RlmContextBrowserComponent implements OnInit, OnDestroy {
           this.addQueryResult(result.queryResult);
         }
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.subscriptions.push(unsubQueryComplete);
   }
 

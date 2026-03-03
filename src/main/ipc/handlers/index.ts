@@ -26,3 +26,6 @@ export { registerSupervisionHandlers } from './supervision-handlers';
 export { registerRecentDirectoriesHandlers } from './recent-directories-handlers';
 export { registerEcosystemHandlers } from './ecosystem-handlers';
 export { registerConsensusHandlers } from './consensus-handlers';
+export { registerRoutingHandlers } from './routing-handlers';
+export { registerCommunicationHandlers } from './communication-handlers';
+export { registerParallelWorktreeHandlers } from './parallel-worktree-handlers';

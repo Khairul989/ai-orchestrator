@@ -146,19 +146,14 @@ export class GeminiCliProvider extends BaseProvider {
       throw new Error('Provider not initialized');
     }
 
-    // Convert provider attachments to CLI format
-    const cliAttachments = attachments?.map((a) => ({
-      type: (a.type === 'image' ? 'image' : 'file') as 'file' | 'image' | 'code',
-      name: a.name,
-      mimeType: a.mimeType,
-      content: a.data,
-    }));
+    if (attachments && attachments.length > 0) {
+      throw new Error('Gemini provider does not support attachments. Vision capability is disabled.');
+    }
 
     try {
       const response = await this.adapter.sendMessage({
         role: 'user',
         content: message,
-        attachments: cliAttachments,
       });
 
       // Update usage

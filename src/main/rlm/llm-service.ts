@@ -11,6 +11,10 @@
 import { EventEmitter } from 'events';
 import { getTokenCounter, TokenCounter } from './token-counter';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
+import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('LLMService');
 
 export interface LLMServiceConfig {
   provider: 'anthropic' | 'ollama' | 'openai' | 'local';
@@ -355,34 +359,65 @@ Answer:`;
   }
 
   /**
-   * Generate a completion using the configured provider
+   * Generate a completion using the configured provider.
+   * Each provider call is guarded by a circuit breaker to fail fast
+   * when a provider is known to be unhealthy.
    */
   private async generateCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
+    const registry = getCircuitBreakerRegistry();
+
     // Try providers in order of preference based on config
     if (this.config.provider === 'anthropic' || this.config.anthropicApiKey) {
-      try {
-        return await this.generateWithAnthropic(systemPrompt, userPrompt);
-      } catch (error) {
-        this.anthropicAvailable = false;
-        this.emit('provider:error', { provider: 'anthropic', error });
+      const breaker = registry.getBreaker('llm-anthropic');
+      if (!breaker.isAllowed()) {
+        logger.warn('Circuit breaker open for anthropic LLM provider, skipping');
+      } else {
+        const startTime = Date.now();
+        try {
+          const result = await this.generateWithAnthropic(systemPrompt, userPrompt);
+          breaker.recordSuccess(Date.now() - startTime);
+          return result;
+        } catch (error) {
+          breaker.recordFailure(error as Error, Date.now() - startTime);
+          this.anthropicAvailable = false;
+          this.emit('provider:error', { provider: 'anthropic', error });
+        }
       }
     }
 
     if (this.config.provider === 'ollama' || this.ollamaAvailable !== false) {
-      try {
-        return await this.generateWithOllama(systemPrompt, userPrompt);
-      } catch (error) {
-        this.ollamaAvailable = false;
-        this.emit('provider:error', { provider: 'ollama', error });
+      const breaker = registry.getBreaker('llm-ollama');
+      if (!breaker.isAllowed()) {
+        logger.warn('Circuit breaker open for ollama LLM provider, skipping');
+      } else {
+        const startTime = Date.now();
+        try {
+          const result = await this.generateWithOllama(systemPrompt, userPrompt);
+          breaker.recordSuccess(Date.now() - startTime);
+          return result;
+        } catch (error) {
+          breaker.recordFailure(error as Error, Date.now() - startTime);
+          this.ollamaAvailable = false;
+          this.emit('provider:error', { provider: 'ollama', error });
+        }
       }
     }
 
     if (this.config.provider === 'openai' || this.config.openaiApiKey) {
-      try {
-        return await this.generateWithOpenAI(systemPrompt, userPrompt);
-      } catch (error) {
-        this.openaiAvailable = false;
-        this.emit('provider:error', { provider: 'openai', error });
+      const breaker = registry.getBreaker('llm-openai');
+      if (!breaker.isAllowed()) {
+        logger.warn('Circuit breaker open for openai LLM provider, skipping');
+      } else {
+        const startTime = Date.now();
+        try {
+          const result = await this.generateWithOpenAI(systemPrompt, userPrompt);
+          breaker.recordSuccess(Date.now() - startTime);
+          return result;
+        } catch (error) {
+          breaker.recordFailure(error as Error, Date.now() - startTime);
+          this.openaiAvailable = false;
+          this.emit('provider:error', { provider: 'openai', error });
+        }
       }
     }
 
@@ -391,7 +426,10 @@ Answer:`;
   }
 
   /**
-   * Generate a completion with streaming using the configured provider
+   * Generate a completion with streaming using the configured provider.
+   * Each provider is guarded by a circuit breaker. If the circuit is open
+   * for a provider, that provider is skipped immediately without a network call.
+   * Timing is tracked across the full stream so the breaker reflects real-world latency.
    */
   private async *generateCompletionStreaming(
     systemPrompt: string,
@@ -399,40 +437,65 @@ Answer:`;
     requestId: string
   ): AsyncGenerator<StreamChunk, void, unknown> {
     const controller = new AbortController();
+    const registry = getCircuitBreakerRegistry();
     this.activeStreams.set(requestId, controller);
 
     try {
       // Try providers in order of preference based on config
       if (this.config.provider === 'anthropic' || this.config.anthropicApiKey) {
-        try {
-          yield* this.streamWithAnthropic(systemPrompt, userPrompt, requestId, controller.signal);
-          return;
-        } catch (error) {
-          if ((error as Error).name === 'AbortError') throw error;
-          this.anthropicAvailable = false;
-          this.emit('provider:error', { provider: 'anthropic', error });
+        const breaker = registry.getBreaker('llm-anthropic');
+        if (!breaker.isAllowed()) {
+          logger.warn('Circuit breaker open for anthropic LLM provider (streaming), skipping');
+        } else {
+          const startTime = Date.now();
+          try {
+            yield* this.streamWithAnthropic(systemPrompt, userPrompt, requestId, controller.signal);
+            breaker.recordSuccess(Date.now() - startTime);
+            return;
+          } catch (error) {
+            if ((error as Error).name === 'AbortError') throw error;
+            breaker.recordFailure(error as Error, Date.now() - startTime);
+            this.anthropicAvailable = false;
+            this.emit('provider:error', { provider: 'anthropic', error });
+          }
         }
       }
 
       if (this.config.provider === 'ollama' || this.ollamaAvailable !== false) {
-        try {
-          yield* this.streamWithOllama(systemPrompt, userPrompt, requestId, controller.signal);
-          return;
-        } catch (error) {
-          if ((error as Error).name === 'AbortError') throw error;
-          this.ollamaAvailable = false;
-          this.emit('provider:error', { provider: 'ollama', error });
+        const breaker = registry.getBreaker('llm-ollama');
+        if (!breaker.isAllowed()) {
+          logger.warn('Circuit breaker open for ollama LLM provider (streaming), skipping');
+        } else {
+          const startTime = Date.now();
+          try {
+            yield* this.streamWithOllama(systemPrompt, userPrompt, requestId, controller.signal);
+            breaker.recordSuccess(Date.now() - startTime);
+            return;
+          } catch (error) {
+            if ((error as Error).name === 'AbortError') throw error;
+            breaker.recordFailure(error as Error, Date.now() - startTime);
+            this.ollamaAvailable = false;
+            this.emit('provider:error', { provider: 'ollama', error });
+          }
         }
       }
 
       if (this.config.provider === 'openai' || this.config.openaiApiKey) {
-        try {
-          yield* this.streamWithOpenAI(systemPrompt, userPrompt, requestId, controller.signal);
-          return;
-        } catch (error) {
-          if ((error as Error).name === 'AbortError') throw error;
-          this.openaiAvailable = false;
-          this.emit('provider:error', { provider: 'openai', error });
+        const breaker = registry.getBreaker('llm-openai');
+        if (!breaker.isAllowed()) {
+          logger.warn('Circuit breaker open for openai LLM provider (streaming), skipping');
+        } else {
+          const startTime = Date.now();
+          try {
+            yield* this.streamWithOpenAI(systemPrompt, userPrompt, requestId, controller.signal);
+            breaker.recordSuccess(Date.now() - startTime);
+            return;
+          } catch (error) {
+            if ((error as Error).name === 'AbortError') throw error;
+            breaker.recordFailure(error as Error, Date.now() - startTime);
+            this.openaiAvailable = false;
+            this.emit('provider:error', { provider: 'openai', error });
+          }
         }
       }
 

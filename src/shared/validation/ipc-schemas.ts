@@ -549,6 +549,8 @@ export const DebateStartPayloadSchema = z.object({
   query: z.string().min(1).max(1_000_000),
   context: z.string().max(1_000_000).optional(),
   config: DebateConfigSchema.partial().optional(),
+  instanceId: z.string().max(500).optional(),
+  provider: z.string().max(100).optional(),
 });
 
 export const DebateGetResultPayloadSchema = DebateIdSchema;

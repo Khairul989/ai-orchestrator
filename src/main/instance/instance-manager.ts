@@ -603,13 +603,13 @@ export class InstanceManager extends EventEmitter {
     contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
   }
 
-    // Send to CLI first — if this throws, the renderer retries without phantom messages.
-    // We emit the user message AFTER a successful send to prevent duplicates on retry.
-    await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock);
-
-    // Send succeeded — now add user message to output buffer and notify renderer
+    // Add user message to output buffer BEFORE sending to CLI.
+    // This ensures the user message appears before the AI response in the chat,
+    // since sendInput may trigger streaming output that arrives during the await.
     this.communication.addToOutputBuffer(instance, userMessage);
     this.emit('instance:output', { instanceId, message: userMessage });
+
+    await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock);
   }
 
   private async spawnCommandSubtask(

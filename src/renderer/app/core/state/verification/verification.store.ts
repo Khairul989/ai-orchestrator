@@ -97,8 +97,7 @@ export class VerificationStore implements OnDestroy {
     console.log('[VerificationStore] Setting up event listeners');
 
     // Agent started
-    const unsubAgentStart = this.ipc.on(
-      'verification:agent-start',
+    const unsubAgentStart = this.ipc.getApi()?.onVerificationAgentStart(
       (rawData: unknown) => {
         console.log('[VerificationStore] Received agent-start event:', rawData);
         const data = rawData as {
@@ -110,12 +109,11 @@ export class VerificationStore implements OnDestroy {
         };
         this.sessionStore.handleAgentStart(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubAgentStart);
 
     // Agent streaming
-    const unsubAgentStream = this.ipc.on(
-      'verification:agent-stream',
+    const unsubAgentStream = this.ipc.getApi()?.onVerificationAgentStream(
       (rawData: unknown) => {
         console.log('[VerificationStore] Received agent-stream event:', rawData);
         const data = rawData as {
@@ -125,12 +123,11 @@ export class VerificationStore implements OnDestroy {
         };
         this.sessionStore.handleAgentStream(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubAgentStream);
 
     // Agent complete
-    const unsubAgentComplete = this.ipc.on(
-      'verification:agent-complete',
+    const unsubAgentComplete = this.ipc.getApi()?.onVerificationAgentComplete(
       (rawData: unknown) => {
         console.log('[VerificationStore] Received agent-complete event:', rawData);
         const data = rawData as {
@@ -139,12 +136,11 @@ export class VerificationStore implements OnDestroy {
         };
         this.sessionStore.handleAgentComplete(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubAgentComplete);
 
     // Round progress
-    const unsubRoundProgress = this.ipc.on(
-      'verification:round-progress',
+    const unsubRoundProgress = this.ipc.getApi()?.onVerificationRoundProgress(
       (rawData: unknown) => {
         const data = rawData as {
           sessionId: string;
@@ -153,22 +149,20 @@ export class VerificationStore implements OnDestroy {
         };
         this.sessionStore.handleRoundProgress(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubRoundProgress);
 
     // Consensus update
-    const unsubConsensus = this.ipc.on(
-      'verification:consensus-update',
+    const unsubConsensus = this.ipc.getApi()?.onVerificationConsensusUpdate(
       (rawData: unknown) => {
         const data = rawData as { sessionId: string; score: number };
         this.sessionStore.handleConsensusUpdate(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubConsensus);
 
     // Verification complete
-    const unsubComplete = this.ipc.on(
-      'verification:complete',
+    const unsubComplete = this.ipc.getApi()?.onVerificationComplete(
       (rawData: unknown) => {
         console.log('[VerificationStore] Received verification-complete event:', rawData);
         const data = rawData as {
@@ -177,18 +171,17 @@ export class VerificationStore implements OnDestroy {
         };
         this.sessionStore.handleVerificationComplete(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubComplete);
 
     // Verification error
-    const unsubError = this.ipc.on(
-      'verification:error',
+    const unsubError = this.ipc.getApi()?.onVerificationError(
       (rawData: unknown) => {
         console.log('[VerificationStore] Received verification-error event:', rawData);
         const data = rawData as { sessionId: string; error: string };
         this.sessionStore.handleVerificationError(data);
       }
-    );
+    ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubError);
 
     console.log('[VerificationStore] Event listeners setup complete');

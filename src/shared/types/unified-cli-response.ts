@@ -496,34 +496,6 @@ export function getNormalizer(cliType: string): ResponseNormalizer {
   }
 }
 
-// ============================================
-// CLI Detection Types (shared with main process)
-// ============================================
-
-/**
- * CLI type identifiers
- */
-export type CliType =
-  | 'claude'
-  | 'codex'
-  | 'gemini'
-  | 'ollama'
-  | 'aider'
-  | 'continue'
-  | 'cursor'
-  | 'copilot';
-
-/**
- * Information about a detected CLI tool
- */
-export interface CliInfo {
-  name: string;
-  command: string;
-  displayName: string;
-  installed: boolean;
-  version?: string;
-  path?: string;
-  authenticated?: boolean;
-  error?: string;
-  capabilities?: string[];
-}
+// CLI Detection Types moved to cli-detection.types.ts
+// Re-export for backward compatibility
+export type { CliType, CliInfo } from './cli-detection.types';

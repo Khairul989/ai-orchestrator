@@ -10,6 +10,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import type { ProjectConfig } from '../../../shared/types/settings.types';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('RemoteConfig');
 
 /**
  * Remote config source
@@ -93,7 +96,7 @@ export class RemoteConfigManager {
         this.cache = new Map(Object.entries(data));
       }
     } catch (error) {
-      console.error('Failed to load remote config cache:', error);
+      logger.error('Failed to load remote config cache', error instanceof Error ? error : undefined);
     }
   }
 
@@ -106,7 +109,7 @@ export class RemoteConfigManager {
       const data = Object.fromEntries(this.cache);
       fs.writeFileSync(cacheFile, JSON.stringify(data, null, 2));
     } catch (error) {
-      console.error('Failed to save remote config cache:', error);
+      logger.error('Failed to save remote config cache', error instanceof Error ? error : undefined);
     }
   }
 

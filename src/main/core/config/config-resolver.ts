@@ -14,6 +14,9 @@ import {
   mergeConfigs,
 } from '../../../shared/types/settings.types';
 import { getSettingsManager } from './settings-manager';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('ConfigResolver');
 
 // Cache for project configs to avoid repeated file reads
 const projectConfigCache = new Map<string, { config: ProjectConfig; mtime: number }>();
@@ -71,7 +74,7 @@ export function loadProjectConfig(configPath: string): ProjectConfig | null {
 
     return config;
   } catch (error) {
-    console.error(`Failed to load project config from ${configPath}:`, error);
+    logger.error('Failed to load project config', error instanceof Error ? error : undefined, { configPath });
     return null;
   }
 }
@@ -101,7 +104,7 @@ export function saveProjectConfig(configPath: string, config: ProjectConfig): bo
 
     return true;
   } catch (error) {
-    console.error(`Failed to save project config to ${configPath}:`, error);
+    logger.error('Failed to save project config', error instanceof Error ? error : undefined, { configPath });
     return false;
   }
 }

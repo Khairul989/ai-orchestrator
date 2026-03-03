@@ -14,6 +14,9 @@
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('PermissionManager');
 
 /**
  * Permission action types
@@ -748,8 +751,8 @@ export class PermissionManager extends EventEmitter {
     const dir = path.dirname(filePath);
     try {
       fs.mkdirSync(dir, { recursive: true });
-    } catch {
-      // ignore
+    } catch (error) {
+      logger.warn('Failed to create permissions directory', { dir, error: error instanceof Error ? error.message : String(error) });
     }
 
     const payload: PersistedPermissionFileV1 = {
@@ -759,8 +762,8 @@ export class PermissionManager extends EventEmitter {
     };
     try {
       fs.writeFileSync(filePath, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
-    } catch {
-      // ignore
+    } catch (error) {
+      logger.warn('Failed to write permissions file', { filePath, error: error instanceof Error ? error.message : String(error) });
     }
   }
 

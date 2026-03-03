@@ -98,7 +98,12 @@ export class DebateCoordinator extends EventEmitter {
 
   // ============ Debate Lifecycle ============
 
-  async startDebate(query: string, context?: string, config?: Partial<DebateConfig>): Promise<string> {
+  async startDebate(
+    query: string,
+    context?: string,
+    config?: Partial<DebateConfig>,
+    options?: { instanceId?: string; provider?: string }
+  ): Promise<string> {
     const debateId = `debate-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const mergedConfig = { ...this.defaultConfig, ...config };
 
@@ -107,6 +112,8 @@ export class DebateCoordinator extends EventEmitter {
       config: mergedConfig,
       query,
       context,
+      instanceId: options?.instanceId,
+      provider: options?.provider,
       currentRound: 0,
       rounds: [],
       startTime: Date.now(),
@@ -332,6 +339,8 @@ export class DebateCoordinator extends EventEmitter {
 
       this.emit('debate:generate-response', {
         debateId: debate.id,
+        instanceId: debate.instanceId,
+        provider: debate.provider,
         agentId,
         agentIndex,
         temperature,
@@ -402,6 +411,8 @@ Brief summary of your reasoning approach and key considerations.`;
 
       this.emit('debate:generate-critiques', {
         debateId: debate.id,
+        instanceId: debate.instanceId,
+        provider: debate.provider,
         agentId,
         agentIndex,
         prompt,
@@ -518,6 +529,8 @@ Provide your critiques:`;
 
       this.emit('debate:generate-defense', {
         debateId: debate.id,
+        instanceId: debate.instanceId,
+        provider: debate.provider,
         agentId,
         agentIndex,
         prompt,
@@ -615,6 +628,8 @@ Brief summary of how you addressed the critiques.`;
 
       this.emit('debate:generate-synthesis', {
         debateId: debate.id,
+        instanceId: debate.instanceId,
+        provider: debate.provider,
         agentId: 'moderator',
         prompt,
         context: debate.context,

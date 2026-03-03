@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  OnDestroy,
   inject,
   signal,
 } from '@angular/core';
@@ -370,12 +371,15 @@ interface MemoryEntryView extends MemoryEntry {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MemoryPageComponent implements OnInit {
+export class MemoryPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly memoryIpc = inject(MemoryIpcService);
+  private unsubscribes: (() => void)[] = [];
 
   readonly entries = signal<MemoryEntryView[]>([]);
   readonly stats = signal<MemoryR1Stats | null>(null);
+  readonly processStats = signal<unknown>(null);
+  readonly memoryWarning = signal<string | null>(null);
   readonly patterns = signal<LearnedPattern[]>([]);
   readonly sessions = signal<SessionMemory[]>([]);
   readonly workflows = signal<WorkflowMemory[]>([]);
@@ -389,8 +393,40 @@ export class MemoryPageComponent implements OnInit {
   readonly infoMessage = signal<string | null>(null);
 
   async ngOnInit(): Promise<void> {
+    // Subscribe to memory stats events
+    this.unsubscribes.push(
+      this.memoryIpc.onMemoryStatsUpdate((stats) => {
+        this.processStats.set(stats);
+      })
+    );
+    this.unsubscribes.push(
+      this.memoryIpc.onMemoryWarning((warning) => {
+        const data = warning as { message?: string };
+        this.memoryWarning.set(data?.message || 'Memory pressure detected');
+      })
+    );
+    this.unsubscribes.push(
+      this.memoryIpc.onMemoryCritical((alert) => {
+        const data = alert as { message?: string };
+        this.memoryWarning.set(data?.message || 'Critical memory pressure!');
+      })
+    );
+
+    // Load initial process memory stats
+    this.memoryIpc.getMemoryStats().then(resp => {
+      if (resp.success && resp.data) {
+        this.processStats.set(resp.data);
+      }
+    }).catch(() => { /* best-effort */ });
+
     await this.refreshMetadata();
     await this.retrieveMemories();
+  }
+
+  ngOnDestroy(): void {
+    for (const unsub of this.unsubscribes) {
+      unsub();
+    }
   }
 
   goBack(): void {

@@ -494,9 +494,15 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
   }
 
   async browseDirectory(): Promise<void> {
-    // This would integrate with Electron's dialog API
-    // For now, show a message
-    this.showToast('Directory browsing via IPC not yet implemented', 'info');
+    const api = (window as unknown as { electronAPI?: { selectFolder: () => Promise<{ success: boolean; data?: string }> } }).electronAPI;
+    if (!api) {
+      this.showToast('Not available outside Electron', 'info');
+      return;
+    }
+    const result = await api.selectFolder();
+    if (result.success && result.data) {
+      this.rootPath.set(result.data as string);
+    }
   }
 
   async loadStats(): Promise<void> {

@@ -149,13 +149,12 @@ export class DebateStreamingService implements OnDestroy {
     });
 
     try {
-      const result = await this.ipc.invoke('debate:start', {
+      const result = await this.ipc.getApi()?.debateStart({
         query,
-        streaming: true,
-        ...config,
+        config: { streaming: true, ...config },
       });
 
-      if (result.success && result.data) {
+      if (result?.success && result.data) {
         const data = result.data as { sessionId: string };
         this.updateState({
           sessionId: data.sessionId,
@@ -164,7 +163,7 @@ export class DebateStreamingService implements OnDestroy {
         });
         return data.sessionId;
       } else {
-        const errorMsg = typeof result.error === 'string' ? result.error : result.error?.message || 'Failed to start debate';
+        const errorMsg = typeof result?.error === 'string' ? result.error : result?.error?.message || 'Failed to start debate';
         throw new Error(errorMsg);
       }
     } catch (error) {
@@ -183,7 +182,7 @@ export class DebateStreamingService implements OnDestroy {
     const sessionId = this.state().sessionId;
     if (!sessionId) return;
 
-    await this.ipc.invoke('debate:pause', { sessionId });
+    await this.ipc.getApi()?.debatePause({ sessionId });
     this.updateState({ status: 'paused' });
   }
 
@@ -194,7 +193,7 @@ export class DebateStreamingService implements OnDestroy {
     const sessionId = this.state().sessionId;
     if (!sessionId) return;
 
-    await this.ipc.invoke('debate:resume', { sessionId });
+    await this.ipc.getApi()?.debateResume({ sessionId });
     this.updateState({ status: 'streaming' });
   }
 
@@ -205,7 +204,7 @@ export class DebateStreamingService implements OnDestroy {
     const sessionId = this.state().sessionId;
     if (!sessionId) return;
 
-    await this.ipc.invoke('debate:stop', { sessionId });
+    await this.ipc.getApi()?.debateStop({ sessionId });
     this.updateState({ status: 'idle' });
   }
 
@@ -216,7 +215,7 @@ export class DebateStreamingService implements OnDestroy {
     const sessionId = this.state().sessionId;
     if (!sessionId) return;
 
-    await this.ipc.invoke('debate:intervene', {
+    await this.ipc.getApi()?.debateIntervene({
       sessionId,
       message,
     });
@@ -227,7 +226,7 @@ export class DebateStreamingService implements OnDestroy {
    */
   private setupIpcListeners(): void {
     // Listen for debate events from main process
-    this.ipc.on('debate:event', (data: unknown) => {
+    this.ipc.getApi()?.onDebateEvent((data: unknown) => {
       const event = data as DebateStreamEvent;
       this.handleDebateEvent(event);
     });
@@ -490,8 +489,8 @@ export class DebateStreamingService implements OnDestroy {
     if (!sessionId) return null;
 
     try {
-      const result = await this.ipc.invoke('debate:get-result', { sessionId });
-      return result.success ? (result.data as DebateResult) : null;
+      const result = await this.ipc.getApi()?.debateGetResult(sessionId);
+      return result?.success ? (result.data as DebateResult) : null;
     } catch {
       return null;
     }

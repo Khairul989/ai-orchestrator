@@ -85,7 +85,7 @@ export class SessionArchiveManager {
         this.metaIndex = new Map(Object.entries(data));
       }
     } catch (error) {
-      console.error('Failed to load archive index:', error);
+      logger.error('Failed to load archive index', error instanceof Error ? error : undefined);
       this.metaIndex = new Map();
     }
   }
@@ -98,7 +98,7 @@ export class SessionArchiveManager {
       const data = Object.fromEntries(this.metaIndex);
       fs.writeFileSync(this.indexFile, JSON.stringify(data, null, 2));
     } catch (error) {
-      console.error('Failed to save archive index:', error);
+      logger.error('Failed to save archive index', error instanceof Error ? error : undefined);
     }
   }
 
@@ -152,7 +152,7 @@ export class SessionArchiveManager {
         return data as ArchivedSession;
       }
     } catch (error) {
-      console.error('Failed to restore archived session:', error);
+      logger.error('Failed to restore archived session', error instanceof Error ? error : undefined);
     }
 
     return null;
@@ -172,7 +172,7 @@ export class SessionArchiveManager {
       this.saveIndex();
       return true;
     } catch (error) {
-      console.error('Failed to delete archived session:', error);
+      logger.error('Failed to delete archived session', error instanceof Error ? error : undefined);
       return false;
     }
   }
@@ -278,7 +278,7 @@ export class SessionArchiveManager {
         diskUsageBytes += stat.size;
       }
     } catch (error) {
-      console.error('Failed to calculate disk usage:', error);
+      logger.error('Failed to calculate disk usage', error instanceof Error ? error : undefined);
     }
 
     return {

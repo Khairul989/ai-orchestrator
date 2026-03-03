@@ -372,7 +372,10 @@ function registerDebateHandlers(): void {
         payload,
         'DEBATE_START'
       );
-      return debate.startDebate(validated.query, validated.context, validated.config);
+      return debate.startDebate(validated.query, validated.context, validated.config, {
+        instanceId: validated.instanceId,
+        provider: validated.provider,
+      });
     }
   );
 
