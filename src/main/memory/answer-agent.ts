@@ -9,6 +9,11 @@ import type {
   MemoryEntry,
   AnswerAgentContext,
 } from '../../shared/types/memory-r1.types';
+import { getLLMService } from '../rlm/llm-service';
+import { retryWithBackoff } from '../core/error-recovery';
+import { getLogger } from '../logging/logger';
+
+const answerLogger = getLogger('AnswerAgent');
 
 export interface AnswerConfig {
   maxContextTokens: number;
@@ -322,8 +327,26 @@ export class AnswerAgent extends EventEmitter {
   // ============ LLM Integration ============
 
   private async callLLM(query: string, context: string): Promise<string> {
-    // Placeholder - actual implementation calls the LLM API
-    return `Response to "${query.slice(0, 50)}..." generated with ${this.estimateTokens(context)} tokens of context.`;
+    try {
+      const llmService = getLLMService();
+      const response = await retryWithBackoff(
+        () => llmService.subQuery({
+          requestId: `answer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          prompt: query,
+          context: `You are an assistant that answers questions using the provided memory context. Use the memories to give accurate, helpful responses. If the context doesn't contain relevant information, say so.\n\n${context}`,
+          depth: 0,
+        }),
+        { maxRetries: 2, initialDelayMs: 500, source: 'answer-agent' }
+      );
+      return response;
+    } catch (error) {
+      answerLogger.warn('LLM call failed for answer generation, returning fallback', {
+        error: (error as Error).message,
+        query: query.slice(0, 100),
+      });
+      // Fallback: return a structured response from the context without LLM
+      return `Based on ${this.estimateTokens(context)} tokens of retrieved memory context for query "${query.slice(0, 80)}": Unable to generate LLM response (${(error as Error).message}). Please review the retrieved memories directly.`;
+    }
   }
 
   // ============ Utilities ============

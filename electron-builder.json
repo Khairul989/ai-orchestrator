@@ -27,7 +27,8 @@
         "arch": ["arm64"]
       }
     ],
-    "darkModeSupport": true
+    "darkModeSupport": true,
+    "notarize": false
   },
   "linux": {
     "target": [

@@ -7,6 +7,9 @@ import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getLLMService } from '../rlm/llm-service';
+import { retryWithBackoff } from '../core/error-recovery';
+import { getLogger } from '../logging/logger';
 
 // Local types for hook execution
 export interface CommandHook {
@@ -59,6 +62,8 @@ export interface HookExecutorConfig {
   shell: string;
   maxOutputSize: number;
 }
+
+const hookLogger = getLogger('HookExecutor');
 
 export class HookExecutor extends EventEmitter {
   private static instance: HookExecutor | null = null;
@@ -496,12 +501,48 @@ export class HookExecutor extends EventEmitter {
     prompt: string,
     _model?: string
   ): Promise<{ approved: boolean; reasoning: string }> {
-    // Placeholder - actual implementation would call LLM
-    // For now, return a default approval
-    return {
-      approved: true,
-      reasoning: `Prompt evaluation: ${prompt.slice(0, 50)}... (LLM evaluation not implemented)`
-    };
+    const systemPrompt = `You are a security evaluator for an AI orchestrator. Evaluate whether the following operation should be allowed.
+Respond with a JSON object: {"approved": true/false, "reasoning": "brief explanation"}
+Only deny operations that are clearly dangerous, destructive, or violate security policies.
+When in doubt, approve the operation.`;
+
+    try {
+      const llmService = getLLMService();
+      const response = await retryWithBackoff(
+        () => llmService.subQuery({
+          requestId: `hook-eval-${Date.now()}`,
+          prompt,
+          context: systemPrompt,
+          depth: 0,
+        }),
+        { maxRetries: 2, initialDelayMs: 500, source: 'hook-executor' }
+      );
+
+      // Parse JSON response from LLM
+      const jsonMatch = response.match(/\{[\s\S]*"approved"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as { approved: boolean; reasoning: string };
+        return {
+          approved: Boolean(parsed.approved),
+          reasoning: parsed.reasoning || 'No reasoning provided',
+        };
+      }
+
+      // If LLM didn't return valid JSON, check for approval keywords
+      const lowerResponse = response.toLowerCase();
+      const approved = lowerResponse.includes('approved') || lowerResponse.includes('allow');
+      return { approved, reasoning: response.slice(0, 200) };
+    } catch (error) {
+      // Fail-open: if LLM is unavailable, approve with a warning
+      hookLogger.warn('LLM evaluation failed, falling back to approve', {
+        error: (error as Error).message,
+        prompt: prompt.slice(0, 100),
+      });
+      return {
+        approved: true,
+        reasoning: `LLM evaluation unavailable (${(error as Error).message}). Defaulting to approved.`,
+      };
+    }
   }
 }
 

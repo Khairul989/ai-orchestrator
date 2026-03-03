@@ -306,22 +306,136 @@ export class EmbeddingService extends EventEmitter {
     return vector;
   }
 
-  // ============ Placeholder for OpenAI Embeddings ============
+  // ============ OpenAI Embeddings ============
 
   private async getOpenAIEmbeddings(texts: string[]): Promise<number[][]> {
-    // Placeholder - would call OpenAI embeddings API
-    // For now, fall back to simple embeddings
-    this.logger.warn('OpenAI embeddings not implemented, using simple embeddings');
-    return this.getSimpleEmbeddings(texts);
+    try {
+      // Check cache first — fixed-dimension embeddings are safe to reuse
+      const results = new Array<number[] | null>(texts.length).fill(null);
+      const uncachedIndices: number[] = [];
+      const uncachedTexts: string[] = [];
+
+      for (let i = 0; i < texts.length; i++) {
+        const cached = this.getFromCache(texts[i]);
+        if (cached) {
+          results[i] = cached;
+        } else {
+          uncachedIndices.push(i);
+          uncachedTexts.push(texts[i]);
+        }
+      }
+
+      // If all were cached, return immediately
+      if (uncachedTexts.length === 0) {
+        return results as number[][];
+      }
+
+      const { getLLMService } = await import('../rlm/llm-service');
+      const config = getLLMService().getConfig();
+      const apiKey = config.openaiApiKey || process.env['OPENAI_API_KEY'];
+
+      if (!apiKey) {
+        this.logger.warn('No OpenAI API key available, falling back to TF-IDF');
+        return this.getSimpleEmbeddings(texts);
+      }
+
+      const response = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'text-embedding-3-small',
+          input: uncachedTexts,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI embeddings API returned ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json() as {
+        data: Array<{ embedding: number[]; index: number }>;
+      };
+
+      // Sort by index to preserve input order
+      const sorted = data.data.sort((a, b) => a.index - b.index);
+      const freshEmbeddings = sorted.map(d => d.embedding);
+
+      // Cache the fresh embeddings and merge into results
+      for (let i = 0; i < uncachedTexts.length; i++) {
+        this.addToCache(uncachedTexts[i], freshEmbeddings[i]);
+        results[uncachedIndices[i]] = freshEmbeddings[i];
+      }
+
+      return results as number[][];
+    } catch (error) {
+      this.logger.warn('OpenAI embeddings failed, falling back to TF-IDF', {
+        error: (error as Error).message,
+      });
+      return this.getSimpleEmbeddings(texts);
+    }
   }
 
-  // ============ Placeholder for Local Embeddings ============
+  // ============ Local Embeddings (Ollama) ============
 
   private async getLocalEmbeddings(texts: string[]): Promise<number[][]> {
-    // Placeholder - would use a local embedding model
-    // For now, fall back to simple embeddings
-    this.logger.warn('Local embeddings not implemented, using simple embeddings');
-    return this.getSimpleEmbeddings(texts);
+    try {
+      // Check cache first — fixed-dimension embeddings are safe to reuse
+      const results = new Array<number[] | null>(texts.length).fill(null);
+      const uncachedIndices: number[] = [];
+      const uncachedTexts: string[] = [];
+
+      for (let i = 0; i < texts.length; i++) {
+        const cached = this.getFromCache(texts[i]);
+        if (cached) {
+          results[i] = cached;
+        } else {
+          uncachedIndices.push(i);
+          uncachedTexts.push(texts[i]);
+        }
+      }
+
+      // If all were cached, return immediately
+      if (uncachedTexts.length === 0) {
+        return results as number[][];
+      }
+
+      const { getLLMService } = await import('../rlm/llm-service');
+      const config = getLLMService().getConfig();
+      const ollamaHost = config.ollamaHost || process.env['OLLAMA_HOST'] || 'http://localhost:11434';
+
+      // Ollama's embed endpoint handles batches
+      const response = await fetch(`${ollamaHost}/api/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'nomic-embed-text',
+          input: uncachedTexts,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ollama embed API returned ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json() as { embeddings: number[][] };
+      const freshEmbeddings = data.embeddings;
+
+      // Cache the fresh embeddings and merge into results
+      for (let i = 0; i < uncachedTexts.length; i++) {
+        this.addToCache(uncachedTexts[i], freshEmbeddings[i]);
+        results[uncachedIndices[i]] = freshEmbeddings[i];
+      }
+
+      return results as number[][];
+    } catch (error) {
+      this.logger.warn('Local (Ollama) embeddings failed, falling back to TF-IDF', {
+        error: (error as Error).message,
+      });
+      return this.getSimpleEmbeddings(texts);
+    }
   }
 
   // ============ Clustering Algorithms ============

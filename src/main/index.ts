@@ -19,6 +19,9 @@ import { getOrchestrationActivityBridge } from './orchestration/orchestration-ac
 import { getDebateCoordinator } from './orchestration/debate-coordinator';
 import { getMultiVerifyCoordinator } from './orchestration/multi-verify-coordinator';
 import { getLogger } from './logging/logger';
+import { getDoomLoopDetector } from './orchestration/doom-loop-detector';
+import { initTruncationCleanup } from './util/tool-output-truncation';
+import { evaluateContextWindowGuard } from './context/context-window-guard';
 
 const logger = getLogger('App');
 
@@ -57,6 +60,8 @@ class AIOrchestratorApp {
         { name: 'Reflector agent', fn: () => { getReflectorAgent(); } },
         { name: 'Path validator', fn: () => initializePathValidator() },
         { name: 'Compaction coordinator', fn: () => this.setupCompactionCoordinator() },
+        { name: 'Doom loop detector', fn: () => { getDoomLoopDetector(); } },
+        { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
       ];
 
       for (const step of steps) {
@@ -90,6 +95,7 @@ class AIOrchestratorApp {
     this.instanceManager.on('instance:removed', (instanceId) => {
       this.windowManager.sendToRenderer('instance:removed', instanceId);
       getCompactionCoordinator().cleanupInstance(instanceId as string);
+      getDoomLoopDetector().cleanupInstance(instanceId as string);
     });
 
     this.instanceManager.on('instance:state-update', (update) => {
@@ -103,13 +109,23 @@ class AIOrchestratorApp {
     this.instanceManager.on('instance:batch-update', (updates) => {
       this.windowManager.sendToRenderer('instance:batch-update', updates);
 
-      // Feed context usage updates to compaction coordinator
+      // Feed context usage updates to compaction coordinator and context window guard
       const data = updates as { updates?: { instanceId: string; contextUsage?: { used: number; total: number; percentage: number } }[] };
       if (data.updates) {
         const coordinator = getCompactionCoordinator();
         for (const update of data.updates) {
           if (update.contextUsage) {
             coordinator.onContextUpdate(update.instanceId, update.contextUsage);
+
+            // Evaluate context window guard for low-context warnings
+            const remaining = update.contextUsage.total - update.contextUsage.used;
+            const guardResult = evaluateContextWindowGuard(remaining);
+            if (guardResult.shouldWarn || !guardResult.allowed) {
+              this.windowManager.sendToRenderer('context:warning', {
+                instanceId: update.instanceId,
+                ...guardResult,
+              });
+            }
           }
         }
       }
@@ -118,6 +134,12 @@ class AIOrchestratorApp {
     // Forward input-required events (permission prompts) to renderer
     this.instanceManager.on('instance:input-required', (payload) => {
       this.windowManager.sendToRenderer('instance:input-required', payload);
+    });
+
+    // Forward doom loop detection events to renderer
+    getDoomLoopDetector().on('doom-loop-detected', (event) => {
+      logger.warn('Forwarding doom loop event to renderer', { instanceId: event.instanceId, toolName: event.toolName });
+      this.windowManager.sendToRenderer('instance:doom-loop', event);
     });
 
     // Forward user action requests from orchestrator to renderer

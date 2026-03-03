@@ -58,6 +58,7 @@ export interface InputRequiredPayload {
   id: string;
   prompt: string;
   timestamp: number;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -84,6 +85,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private pendingPermissions: Set<string> = new Set();
   /** Track permissions that user has already approved (to avoid re-prompting after retry fails) */
   private approvedPermissions: Set<string> = new Set();
+  /** Deduplicate AskUserQuestion prompts that can be emitted in multiple stream shapes */
+  private emittedAskUserQuestionKeys: Set<string> = new Set();
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow = 200000;
 
@@ -710,10 +713,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   private processCliMessage(message: CliStreamMessage): void {
     switch (message.type) {
-      case 'assistant':
+      case 'assistant': {
         const assistantMsg = message as any;
         let assistantContent = '';
         const thinkingBlocks: ThinkingContent[] = [];
+        const assistantTimestamp = message.timestamp || Date.now();
 
         if (assistantMsg.message?.content) {
           for (const block of assistantMsg.message.content) {
@@ -723,10 +727,32 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 id: generateId(),
                 content: block.thinking,
                 format: 'structured',
-                timestamp: message.timestamp || Date.now()
+                timestamp: assistantTimestamp
               });
             } else if (block.type === 'text' && block.text) {
               assistantContent += block.text;
+            } else if (block.type === 'tool_use' && block.name) {
+              const toolUseId = block.id || generateId();
+              const toolInput = block.input || {};
+
+              // Surface inline tool usage from assistant blocks for consistency.
+              this.emit('output', {
+                id: generateId(),
+                timestamp: assistantTimestamp,
+                type: 'tool_use',
+                content: `Using tool: ${block.name}`,
+                metadata: {
+                  name: block.name,
+                  id: toolUseId,
+                  input: toolInput,
+                }
+              });
+
+              // Claude sometimes asks questions via AskUserQuestion tool_use blocks
+              // without a top-level input_required event.
+              if (block.name === 'AskUserQuestion') {
+                this.emitAskUserQuestionInputRequired(toolUseId, toolInput, assistantTimestamp);
+              }
             }
           }
         } else if (typeof assistantMsg.content === 'string') {
@@ -738,13 +764,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         assistantContent = extracted.response;
         thinkingBlocks.push(...extracted.thinking.map(t => ({
           ...t,
-          timestamp: message.timestamp || Date.now()
+          timestamp: assistantTimestamp
         })));
 
         if (assistantContent.trim() || thinkingBlocks.length > 0) {
           this.emit('output', {
             id: generateId(),
-            timestamp: message.timestamp || Date.now(),
+            timestamp: assistantTimestamp,
             type: 'assistant',
             content: assistantContent,
             // Include thinking blocks if any were found
@@ -774,6 +800,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
         this.emit('status', 'busy' as InstanceStatus);
         break;
+      }
 
       case 'user':
         const userMsg = message as any;
@@ -935,6 +962,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           content: `Using tool: ${message.tool.name}`,
           metadata: message.tool
         });
+        if (message.tool.name === 'AskUserQuestion') {
+          this.emitAskUserQuestionInputRequired(
+            message.tool.id,
+            message.tool.input || {},
+            message.timestamp || Date.now()
+          );
+        }
         break;
 
       case 'tool_result':
@@ -1034,5 +1068,98 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         logger.debug('Input_required handling complete');
         break;
     }
+  }
+
+  private emitAskUserQuestionInputRequired(
+    toolUseId: string | undefined,
+    input: unknown,
+    timestamp: number
+  ): void {
+    const prompt = this.buildAskUserQuestionPrompt(input);
+    if (!prompt) {
+      return;
+    }
+
+    const dedupeKey = toolUseId || `prompt:${prompt}`;
+    if (this.emittedAskUserQuestionKeys.has(dedupeKey)) {
+      return;
+    }
+    this.emittedAskUserQuestionKeys.add(dedupeKey);
+
+    const inputRequestId = generateId();
+    this.emit('status', 'waiting_for_input' as InstanceStatus);
+
+    this.emit('input_required', {
+      id: inputRequestId,
+      prompt,
+      timestamp,
+      metadata: {
+        type: 'ask_user_question',
+        tool_use_id: toolUseId,
+        input,
+      }
+    });
+
+    // Also mirror into system output so the user can always see what was asked.
+    this.emit('output', {
+      id: inputRequestId,
+      timestamp,
+      type: 'system',
+      content: prompt,
+      metadata: {
+        requiresInput: true,
+        askUserQuestion: true,
+      }
+    });
+  }
+
+  private buildAskUserQuestionPrompt(input: unknown): string {
+    if (!input || typeof input !== 'object') {
+      return 'Input required from Claude. Please provide your response.';
+    }
+
+    const data = input as Record<string, unknown>;
+    const directQuestion = this.readString(data, ['question', 'prompt', 'message', 'text']);
+    const title = this.readString(data, ['title', 'header']);
+
+    const options = Array.isArray(data['options']) ? data['options'] : [];
+    const optionLines = options
+      .map((opt, index) => {
+        if (typeof opt === 'string' && opt.trim().length > 0) {
+          return `${index + 1}. ${opt.trim()}`;
+        }
+        if (opt && typeof opt === 'object') {
+          const obj = opt as Record<string, unknown>;
+          const label = this.readString(obj, ['label', 'title', 'value', 'id']);
+          return label ? `${index + 1}. ${label}` : '';
+        }
+        return '';
+      })
+      .filter((line) => line.length > 0);
+
+    const parts: string[] = [];
+    if (title) {
+      parts.push(title);
+    }
+    if (directQuestion) {
+      parts.push(directQuestion);
+    } else if (parts.length === 0) {
+      parts.push('Claude requested input via AskUserQuestion.');
+    }
+    if (optionLines.length > 0) {
+      parts.push('', 'Options:', ...optionLines);
+    }
+
+    return parts.join('\n').trim();
+  }
+
+  private readString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+    for (const key of keys) {
+      const value = obj[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return undefined;
   }
 }

@@ -12,6 +12,9 @@ import { EventEmitter } from 'events';
 import Anthropic from '@anthropic-ai/sdk';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getTokenCounter } from '../rlm/token-counter';
+import { getLogger } from '../logging/logger';
+
+const compactorLogger = getLogger('ContextCompactor');
 
 export interface CompactionConfig {
   /** Threshold to trigger compaction (0-1, default 0.85) */
@@ -78,6 +81,15 @@ export interface ConversationSummary {
 /** Maximum number of summaries to retain */
 const MAX_SUMMARIES = 50;
 const MAX_COMPACTION_HISTORY = 100;
+
+/** Safety timeout for compaction LLM calls (5 minutes) */
+const COMPACTION_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Minimum prunable tokens before the prune pass fires */
+const PRUNE_MINIMUM_TOKENS = 20000;
+
+/** Recent tokens protected from pruning */
+const PRUNE_PROTECT_TOKENS = 40000;
 
 const DEFAULT_CONFIG: CompactionConfig = {
   triggerThreshold: 0.85,
@@ -205,25 +217,130 @@ export class ContextCompactor extends EventEmitter {
   }
 
   /**
-   * Perform context compaction
+   * Prune pass: walk backwards through turns, marking old tool outputs as compacted.
+   * Protects the most recent PRUNE_PROTECT_TOKENS of tool output, and only fires
+   * if at least PRUNE_MINIMUM_TOKENS of tool output can be pruned.
+   * Inspired by opencode's two-pass compaction approach.
+   */
+  pruneToolOutputs(): { prunedTokens: number; prunedTurns: number } {
+    let protectedTokens = 0;
+    let prunableTokens = 0;
+    let prunedTurns = 0;
+
+    // Walk backwards from newest to oldest
+    const turnsReversed = [...this.state.turns].reverse();
+
+    for (const turn of turnsReversed) {
+      if (!turn.toolCalls || turn.toolCalls.length === 0) continue;
+
+      for (const tc of turn.toolCalls) {
+        const outputTokens = tc.outputTokens || 0;
+        if (protectedTokens < PRUNE_PROTECT_TOKENS) {
+          protectedTokens += outputTokens;
+        } else {
+          prunableTokens += outputTokens;
+        }
+      }
+    }
+
+    // Only prune if there's enough to be worth it
+    if (prunableTokens < PRUNE_MINIMUM_TOKENS) {
+      return { prunedTokens: 0, prunedTurns: 0 };
+    }
+
+    // Second pass: actually prune (walk forward this time, oldest first)
+    let remainingProtect = PRUNE_PROTECT_TOKENS;
+    let totalPruned = 0;
+
+    // Process newest first to determine protection budget
+    for (let i = this.state.turns.length - 1; i >= 0; i--) {
+      const turn = this.state.turns[i];
+      if (!turn.toolCalls) continue;
+
+      let turnProtected = false;
+      for (const tc of turn.toolCalls) {
+        if (remainingProtect > 0) {
+          remainingProtect -= (tc.outputTokens || 0);
+          turnProtected = true;
+        }
+      }
+
+      if (!turnProtected) {
+        // This turn's tool outputs are outside the protection window — prune them
+        for (const tc of turn.toolCalls) {
+          if (tc.output && tc.outputTokens > 0) {
+            totalPruned += tc.outputTokens;
+            tc.output = '[Output pruned for context optimization]';
+            tc.outputTokens = 10; // Minimal placeholder cost
+          }
+        }
+        prunedTurns++;
+      }
+    }
+
+    if (totalPruned > 0) {
+      this.state.totalTokens -= totalPruned;
+      this.updateFillRatio();
+      compactorLogger.info('Prune pass completed', {
+        prunedTokens: totalPruned,
+        prunedTurns,
+        remainingTokens: this.state.totalTokens,
+      });
+    }
+
+    return { prunedTokens: totalPruned, prunedTurns };
+  }
+
+  /**
+   * Perform context compaction with safety timeout, prune pass, and post-verification.
    */
   async compact(): Promise<CompactionResult> {
-    const startTime = Date.now();
     const originalTokens = this.state.totalTokens;
     const originalTurnCount = this.state.turns.length;
 
     this.emit('compaction-started', { originalTokens, turnCount: originalTurnCount });
 
+    compactorLogger.info('Compaction started', {
+      originalTokens,
+      turnCount: originalTurnCount,
+      fillRatio: this.state.fillRatio,
+    });
+
     try {
-      // Determine how many turns to compact
+      // Phase 1: Prune tool outputs first (reduces what needs summarization)
+      const pruneResult = this.pruneToolOutputs();
+      if (pruneResult.prunedTokens > 0) {
+        compactorLogger.info('Prune phase reduced context', {
+          prunedTokens: pruneResult.prunedTokens,
+          prunedTurns: pruneResult.prunedTurns,
+          tokensAfterPrune: this.state.totalTokens,
+        });
+      }
+
+      // Check if pruning alone was sufficient
+      if (!this.shouldCompact()) {
+        const result: CompactionResult = {
+          originalTokens,
+          compactedTokens: this.state.totalTokens,
+          reductionRatio: 1 - this.state.totalTokens / originalTokens,
+          turnsRemoved: 0,
+          turnsPreserved: this.state.turns.length,
+          summaryGenerated: false,
+          timestamp: Date.now(),
+        };
+        this.emit('compaction-completed', result);
+        return result;
+      }
+
+      // Phase 2: Summarize old turns
       const turnsToPreserve = Math.min(this.config.preserveRecent, this.state.turns.length);
-      const turnsToCompact = this.state.turns.slice(0, -turnsToPreserve);
+      const turnsToCompact = this.state.turns.slice(0, -turnsToPreserve || undefined);
       const preservedTurns = this.state.turns.slice(-turnsToPreserve);
 
       if (turnsToCompact.length === 0) {
         const result: CompactionResult = {
           originalTokens,
-          compactedTokens: originalTokens,
+          compactedTokens: this.state.totalTokens,
           reductionRatio: 0,
           turnsRemoved: 0,
           turnsPreserved: preservedTurns.length,
@@ -234,8 +351,8 @@ export class ContextCompactor extends EventEmitter {
         return result;
       }
 
-      // Generate summary of compacted turns
-      const summary = await this.generateSummary(turnsToCompact);
+      // Generate summary with safety timeout
+      const summary = await this.generateSummaryWithTimeout(turnsToCompact);
 
       // Apply tool call retention strategy
       const processedTurns = this.applyToolCallRetention(preservedTurns);
@@ -253,14 +370,26 @@ export class ContextCompactor extends EventEmitter {
         return sum + tokens;
       }, 0);
 
+      const newTotalTokens = summaryTokens + preservedTokens;
+
+      // Phase 3: Post-compaction verification
+      if (newTotalTokens >= originalTokens) {
+        compactorLogger.warn('Post-compaction verification failed: tokens did not decrease', {
+          originalTokens,
+          newTotalTokens,
+          summaryTokens,
+          preservedTokens,
+        });
+        // Still apply the compaction but log the anomaly
+      }
+
       // Update state
       this.state.summaries.push(summary);
-      // Cap summaries to prevent unbounded growth
       if (this.state.summaries.length > MAX_SUMMARIES) {
         this.state.summaries = this.state.summaries.slice(-MAX_SUMMARIES);
       }
       this.state.turns = processedTurns;
-      this.state.totalTokens = summaryTokens + preservedTokens;
+      this.state.totalTokens = newTotalTokens;
       this.updateFillRatio();
 
       const result: CompactionResult = {
@@ -275,16 +404,58 @@ export class ContextCompactor extends EventEmitter {
 
       this.state.lastCompaction = result;
       this.compactionHistory.push(result);
-      // Cap compaction history
       if (this.compactionHistory.length > MAX_COMPACTION_HISTORY) {
         this.compactionHistory = this.compactionHistory.slice(-MAX_COMPACTION_HISTORY);
       }
-      this.emit('compaction-completed', result);
 
+      compactorLogger.info('Compaction completed', {
+        originalTokens,
+        compactedTokens: result.compactedTokens,
+        reductionRatio: result.reductionRatio.toFixed(2),
+        turnsRemoved: result.turnsRemoved,
+        summaryGenerated: true,
+      });
+
+      this.emit('compaction-completed', result);
       return result;
     } catch (error) {
+      compactorLogger.error('Compaction failed', error instanceof Error ? error : undefined, {
+        originalTokens,
+        turnCount: originalTurnCount,
+      });
       this.emit('compaction-error', error);
       throw error;
+    }
+  }
+
+  /**
+   * Generate a summary with a safety timeout to prevent hanging on slow LLM calls.
+   * If the timeout fires, falls back to local summary generation.
+   */
+  private async generateSummaryWithTimeout(turns: ConversationTurn[]): Promise<ConversationSummary> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Compaction summary timed out')), COMPACTION_TIMEOUT_MS);
+    });
+
+    try {
+      return await Promise.race([
+        this.generateSummary(turns),
+        timeoutPromise,
+      ]);
+    } catch (error) {
+      compactorLogger.warn('Summary generation timed out or failed, using local fallback', {
+        error: (error as Error).message,
+        turnCount: turns.length,
+        timeoutMs: COMPACTION_TIMEOUT_MS,
+      });
+      // Fall back to local keyword-extraction summary
+      return {
+        id: this.generateId(),
+        content: this.generateLocalSummary(turns),
+        turnRange: { start: 0, end: turns.length - 1 },
+        tokenCount: this.estimateTokens(this.generateLocalSummary(turns)),
+        timestamp: Date.now(),
+      };
     }
   }
 

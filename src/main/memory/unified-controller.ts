@@ -11,7 +11,10 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLLMService } from '../rlm/llm-service';
+import { getLogger } from '../logging/logger';
 
+const unifiedLogger = getLogger('UnifiedMemoryController');
 const MAX_EPISODIC_SESSIONS = 5000;
 const MAX_EPISODIC_PATTERNS = 500;
 const MAX_PATTERN_CONTEXTS = 100;
@@ -1051,8 +1054,28 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   private async callSummarizer(content: string): Promise<string> {
-    // Placeholder - actual implementation calls LLM
-    return `Summary of ${content.length} characters of content`;
+    const estimatedTokens = Math.ceil(content.length / 4);
+    const targetTokens = Math.max(200, Math.floor(estimatedTokens * 0.3));
+
+    try {
+      const llmService = getLLMService();
+      const summary = await llmService.summarize({
+        requestId: `unified-summary-${Date.now()}`,
+        content,
+        targetTokens,
+        preserveKeyPoints: true,
+      });
+      return summary;
+    } catch (error) {
+      unifiedLogger.warn('LLM summarization failed, using local fallback', {
+        error: (error as Error).message,
+        contentLength: content.length,
+      });
+      // Fallback: extract key sentences heuristically
+      const sentences = content.split(/[.!?\n]+/).filter(s => s.trim().length > 20);
+      const selected = sentences.slice(0, Math.max(3, Math.floor(sentences.length * 0.2)));
+      return `[Auto-summary] ${selected.join('. ').slice(0, targetTokens * 4)}`;
+    }
   }
 
   // ============ Persistence ============

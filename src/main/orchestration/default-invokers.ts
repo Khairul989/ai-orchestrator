@@ -14,6 +14,8 @@ import { getDebateCoordinator } from './debate-coordinator';
 import { createCliAdapter, resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
+import { coerceToFailoverError } from '../core/failover-error';
 
 const logger = getLogger('DefaultInvokers');
 
@@ -59,18 +61,34 @@ export function registerDefaultMultiVerifyInvoker(instanceManager: InstanceManag
         timeout: 300000,
       };
 
-      const adapter = createCliAdapter(cliType, spawnOptions);
-      if (!isBaseCliAdapterLike(adapter)) {
-        throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-      }
+      // Use circuit breaker to prevent cascading failures
+      const breaker = getCircuitBreakerRegistry().getBreaker(`verify-${cliType}`, {
+        failureThreshold: 3,
+        resetTimeoutMs: 60000,
+      });
 
-      const prompt = buildUserPrompt(String(payload.userPrompt || ''), payload.context ? String(payload.context) : undefined);
-      const response = await adapter.sendMessage({ role: 'user', content: prompt });
+      const response = await breaker.execute(async () => {
+        const adapter = createCliAdapter(cliType, spawnOptions);
+        if (!isBaseCliAdapterLike(adapter)) {
+          throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+        }
+
+        const prompt = buildUserPrompt(String(payload.userPrompt || ''), payload.context ? String(payload.context) : undefined);
+        return adapter.sendMessage({ role: 'user', content: prompt });
+      });
 
       const tokens = response.usage?.totalTokens ?? 0;
       const cost = 0;
       callback(null, response.content, tokens, cost);
     } catch (err) {
+      // Classify the error for better diagnostics
+      const failoverErr = coerceToFailoverError(err);
+      if (failoverErr) {
+        logger.warn('Verification agent invocation failed (classified)', {
+          reason: failoverErr.reason,
+          retryable: failoverErr.retryable,
+        });
+      }
       const message = err instanceof Error ? err.message : String(err);
       callback(message);
     }
@@ -108,18 +126,33 @@ export function registerDefaultReviewInvoker(instanceManager: InstanceManager): 
         timeout: 300000,
       };
 
-      const adapter = createCliAdapter(cliType, spawnOptions);
-      if (!isBaseCliAdapterLike(adapter)) {
-        throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-      }
+      // Use circuit breaker to prevent cascading failures
+      const breaker = getCircuitBreakerRegistry().getBreaker(`review-${cliType}`, {
+        failureThreshold: 3,
+        resetTimeoutMs: 60000,
+      });
 
-      const prompt = buildUserPrompt(String(payload.userPrompt || ''), payload.context ? String(payload.context) : undefined);
-      const response = await adapter.sendMessage({ role: 'user', content: prompt });
+      const response = await breaker.execute(async () => {
+        const adapter = createCliAdapter(cliType, spawnOptions);
+        if (!isBaseCliAdapterLike(adapter)) {
+          throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+        }
+
+        const prompt = buildUserPrompt(String(payload.userPrompt || ''), payload.context ? String(payload.context) : undefined);
+        return adapter.sendMessage({ role: 'user', content: prompt });
+      });
 
       const tokens = response.usage?.totalTokens ?? 0;
       const cost = 0;
       callback(null, response.content, tokens, cost);
     } catch (err) {
+      const failoverErr = coerceToFailoverError(err);
+      if (failoverErr) {
+        logger.warn('Review agent invocation failed (classified)', {
+          reason: failoverErr.reason,
+          retryable: failoverErr.retryable,
+        });
+      }
       const message = err instanceof Error ? err.message : String(err);
       callback(message);
     }
@@ -161,13 +194,21 @@ export function registerDefaultDebateInvoker(_instanceManager: InstanceManager):
           timeout: 300000,
         };
 
-        adapter = createCliAdapter(cliType, spawnOptions);
-        if (!isBaseCliAdapterLike(adapter)) {
-          throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-        }
+        // Use circuit breaker to prevent cascading failures
+        const breaker = getCircuitBreakerRegistry().getBreaker(`debate-${cliType}`, {
+          failureThreshold: 3,
+          resetTimeoutMs: 60000,
+        });
 
-        const prompt = buildUserPrompt(String(payload.prompt || ''), payload.context ? String(payload.context) : undefined);
-        const response = await adapter.sendMessage({ role: 'user', content: prompt });
+        const response = await breaker.execute(async () => {
+          adapter = createCliAdapter(cliType, spawnOptions);
+          if (!isBaseCliAdapterLike(adapter)) {
+            throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+          }
+
+          const prompt = buildUserPrompt(String(payload.prompt || ''), payload.context ? String(payload.context) : undefined);
+          return adapter.sendMessage({ role: 'user', content: prompt });
+        });
 
         const tokens = response.usage?.totalTokens ?? 0;
         // generate-response callback expects (response, tokens); others expect (response)
@@ -177,6 +218,15 @@ export function registerDefaultDebateInvoker(_instanceManager: InstanceManager):
           callback(response.content);
         }
       } catch (err) {
+        // Classify the error for better diagnostics
+        const failoverErr = coerceToFailoverError(err);
+        if (failoverErr) {
+          logger.warn('Debate agent invocation failed (classified)', {
+            reason: failoverErr.reason,
+            retryable: failoverErr.retryable,
+            eventName,
+          });
+        }
         // Debate callbacks don't have an error parameter — the Promise will
         // time out on the coordinator side if no callback is invoked.
         logger.error('Error handling debate event', err instanceof Error ? err : undefined, { eventName });
