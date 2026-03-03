@@ -4,7 +4,7 @@
  */
 
 import { ipcMain } from 'electron';
-import { IPC_CHANNELS } from '../../shared/types/ipc.types';
+import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { getMemoryManager } from '../memory/r1-memory-manager';
 import { getUnifiedMemory } from '../memory/unified-controller';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
@@ -407,6 +407,64 @@ function registerDebateHandlers(): void {
   // Get stats
   ipcMain.handle(IPC_CHANNELS.DEBATE_GET_STATS, (): DebateStats => {
     return debate.getStats();
+  });
+
+  // Pause debate — frontend calls 'debate:pause'
+  ipcMain.handle('debate:pause', async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const data = payload as { sessionId?: string } | undefined;
+      const debateId = data?.sessionId;
+      if (!debateId) {
+        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId required', timestamp: Date.now() } };
+      }
+      return { success: debate.pauseDebate(debateId), data: { debateId, status: 'paused' } };
+    } catch (error) {
+      return { success: false, error: { code: 'DEBATE_PAUSE_FAILED', message: (error as Error).message, timestamp: Date.now() } };
+    }
+  });
+
+  // Resume debate — frontend calls 'debate:resume'
+  ipcMain.handle('debate:resume', async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const data = payload as { sessionId?: string } | undefined;
+      const debateId = data?.sessionId;
+      if (!debateId) {
+        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId required', timestamp: Date.now() } };
+      }
+      return { success: debate.resumeDebate(debateId), data: { debateId, status: 'in_progress' } };
+    } catch (error) {
+      return { success: false, error: { code: 'DEBATE_RESUME_FAILED', message: (error as Error).message, timestamp: Date.now() } };
+    }
+  });
+
+  // Stop debate — frontend calls 'debate:stop' (alias for cancel)
+  ipcMain.handle('debate:stop', async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const data = payload as { sessionId?: string } | undefined;
+      const debateId = data?.sessionId;
+      if (!debateId) {
+        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId required', timestamp: Date.now() } };
+      }
+      const stopped = await debate.cancelDebate(debateId);
+      return { success: stopped, data: { debateId, status: 'cancelled' } };
+    } catch (error) {
+      return { success: false, error: { code: 'DEBATE_STOP_FAILED', message: (error as Error).message, timestamp: Date.now() } };
+    }
+  });
+
+  // Intervene in debate — frontend calls 'debate:intervene'
+  ipcMain.handle('debate:intervene', async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const data = payload as { sessionId?: string; message?: string } | undefined;
+      const debateId = data?.sessionId;
+      const message = data?.message;
+      if (!debateId || !message) {
+        return { success: false, error: { code: 'INVALID_PAYLOAD', message: 'sessionId and message required', timestamp: Date.now() } };
+      }
+      return { success: debate.intervene(debateId, message), data: { debateId } };
+    } catch (error) {
+      return { success: false, error: { code: 'DEBATE_INTERVENE_FAILED', message: (error as Error).message, timestamp: Date.now() } };
+    }
   });
 }
 

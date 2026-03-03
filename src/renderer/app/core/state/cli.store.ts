@@ -14,7 +14,7 @@ export interface CliInfo {
   error?: string;
 }
 
-export type CliType = 'claude' | 'gemini' | 'openai';
+export type CliType = 'claude' | 'gemini' | 'codex' | 'copilot';
 
 interface CliState {
   clis: CliInfo[];
@@ -66,7 +66,7 @@ export class CliStore {
       clis: [
         { name: 'Claude Code', installUrl: 'https://claude.ai/code', command: 'npm install -g @anthropic-ai/claude-code' },
         { name: 'Gemini CLI', installUrl: 'https://ai.google.dev/gemini-api/docs/cli', command: 'npm install -g @google/gemini-cli' },
-        { name: 'OpenAI CLI', installUrl: 'https://platform.openai.com/docs/cli', command: 'pip install openai' },
+        { name: 'OpenAI Codex CLI', installUrl: 'https://openai.com/codex-cli/setup', command: 'npm install -g @openai/codex' },
       ],
     };
   });

@@ -8,7 +8,15 @@ import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
 
-export type ProviderType = 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+export type ProviderType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+
+function normalizeProvider(value: unknown): ProviderType {
+  if (value === 'openai') return 'codex';
+  if (value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot' || value === 'auto') {
+    return value;
+  }
+  return 'claude';
+}
 
 @Injectable({ providedIn: 'root' })
 export class ProviderStateService {
@@ -31,7 +39,7 @@ export class ProviderStateService {
       const settings = this.settingsStore.settings();
       if (!this.initialized) {
         if (settings.defaultCli) {
-          this.selectedProvider.set(settings.defaultCli as ProviderType);
+          this.selectedProvider.set(normalizeProvider(settings.defaultCli));
         }
         if (settings.defaultModel) {
           this.selectedModel.set(settings.defaultModel);
@@ -62,13 +70,13 @@ export class ProviderStateService {
     this.settingsIpc.onSettingsChanged((data: unknown) => {
       const change = data as { key?: string; value?: unknown; settings?: Record<string, unknown> };
       if (change.key === 'defaultCli' && change.value) {
-        this.selectedProvider.set(change.value as ProviderType);
+        this.selectedProvider.set(normalizeProvider(change.value));
       } else if (change.key === 'defaultModel' && change.value) {
         this.selectedModel.set(change.value as string);
       } else if (change.settings) {
         // Bulk settings update
         if (change.settings['defaultCli']) {
-          this.selectedProvider.set(change.settings['defaultCli'] as ProviderType);
+          this.selectedProvider.set(normalizeProvider(change.settings['defaultCli']));
         }
         if (change.settings['defaultModel']) {
           this.selectedModel.set(change.settings['defaultModel'] as string);

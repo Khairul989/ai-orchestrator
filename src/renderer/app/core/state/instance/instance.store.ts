@@ -320,7 +320,7 @@ export class InstanceStore implements OnDestroy {
     message: string,
     files?: File[],
     workingDirectory?: string,
-    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto',
+    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
     model?: string
   ): Promise<void> {
     return this.listStore.createInstanceWithMessage(

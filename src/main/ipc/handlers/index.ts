@@ -25,3 +25,4 @@ export { registerCodebaseHandlers } from './codebase-handlers';
 export { registerSupervisionHandlers } from './supervision-handlers';
 export { registerRecentDirectoriesHandlers } from './recent-directories-handlers';
 export { registerEcosystemHandlers } from './ecosystem-handlers';
+export { registerConsensusHandlers } from './consensus-handlers';

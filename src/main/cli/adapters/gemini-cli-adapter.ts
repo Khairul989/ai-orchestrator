@@ -8,6 +8,7 @@
 
 import {
   BaseCliAdapter,
+  AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
   CliStatus,
@@ -99,10 +100,19 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       fileAccess: true,
       shellExecution: true,
       multiTurn: true,
-      vision: true, // Gemini supports images
+      vision: false, // Attachment-based vision is not wired in orchestrator mode
       codeExecution: true,
       contextWindow: 1000000, // Gemini Pro has 1M+ context
       outputFormats: ['text', 'json', 'markdown']
+    };
+  }
+
+  override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
+    return {
+      supportsResume: false,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
     };
   }
 
@@ -545,7 +555,6 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   // Unlike Claude CLI which maintains a persistent process, Gemini runs exec per message
 
   private isSpawned: boolean = false;
-  private totalTokensUsed: number = 0;
 
   /**
    * "Spawn" the CLI adapter - marks it as ready to receive messages.
@@ -579,6 +588,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   async sendInput(message: string, attachments?: any[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
+    }
+
+    if (attachments && attachments.length > 0) {
+      throw new Error('Gemini adapter does not currently support attachments in orchestrator mode.');
     }
 
     this.emit('status', 'busy' as InstanceStatus);
@@ -620,13 +633,18 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Update context/usage tracking
+      // Update context usage using current-turn occupancy, not cumulative lifetime usage.
+      // In exec-per-message mode, summing turn usage can falsely hit compaction thresholds.
       if (response.usage) {
-        this.totalTokensUsed += response.usage.totalTokens || 0;
+        const usedTokens = response.usage.inputTokens !== undefined ||
+          response.usage.outputTokens !== undefined
+          ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
+          : (response.usage.totalTokens || 0);
+        const contextWindow = this.getCapabilities().contextWindow;
         const contextUsage: ContextUsage = {
-          used: this.totalTokensUsed,
-          total: 1000000, // Gemini 1.5 Pro has 1M+ context
-          percentage: Math.min((this.totalTokensUsed / 1000000) * 100, 100)
+          used: usedTokens,
+          total: contextWindow,
+          percentage: Math.min((usedTokens / contextWindow) * 100, 100)
         };
         this.emit('context', contextUsage);
       }
@@ -655,7 +673,6 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     const wasSpawned = this.isSpawned;
     await super.terminate(graceful);
     this.isSpawned = false;
-    this.totalTokensUsed = 0;
     // Emit exit event for cleanup (archive, adapter removal, etc.)
     // Only emit if we were actually spawned to avoid spurious events
     if (wasSpawned) {

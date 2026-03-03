@@ -594,7 +594,7 @@ export class ModelsPageComponent implements OnInit {
   readonly overrideMessage = signal<string | null>(null);
   readonly overrideIsError = signal(false);
 
-  readonly knownProviders = ['claude', 'copilot', 'openai', 'gemini'];
+  readonly knownProviders = ['claude', 'copilot', 'codex', 'gemini'];
 
   readonly filteredModels = computed(() => {
     const provider = this.activeProvider();
@@ -746,9 +746,10 @@ export class ModelsPageComponent implements OnInit {
       const entry = raw as Record<string, unknown>;
       const id = String(entry['id'] ?? entry['modelId'] ?? '');
       const name = String(entry['name'] ?? entry['displayName'] ?? id);
-      const provider = String(
+      const providerRaw = String(
         entry['provider'] ?? entry['source'] ?? fallbackProvider ?? 'unknown'
       );
+      const provider = providerRaw === 'openai' ? 'codex' : providerRaw;
       const status: ModelInfo['status'] =
         entry['status'] === 'verified'
           ? 'verified'

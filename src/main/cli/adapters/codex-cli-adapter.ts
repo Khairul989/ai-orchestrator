@@ -8,6 +8,7 @@
 
 import {
   BaseCliAdapter,
+  AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
   CliStatus,
@@ -83,10 +84,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
       fileAccess: true,
       shellExecution: true,
       multiTurn: true,
-      vision: false, // Codex CLI doesn't support images (as of 2025)
+      vision: false, // Explicitly blocked in orchestrator mode
       codeExecution: true,
       contextWindow: 128000, // GPT-4 context window
       outputFormats: ['text', 'json'],
+    };
+  }
+
+  override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
+    return {
+      supportsResume: false,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
     };
   }
 
@@ -341,15 +351,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Skip git repo check in case we're running outside a repo
     args.push('--skip-git-repo-check');
 
-    // Handle image attachments
-    if (message.attachments) {
-      for (const attachment of message.attachments) {
-        if (attachment.type === 'image' && attachment.path) {
-          args.push('--image', attachment.path);
-        }
-      }
-    }
-
     // Add the prompt as a positional argument (required for exec)
     if (message.content) {
       args.push(message.content);
@@ -437,7 +438,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // Unlike Claude CLI which maintains a persistent process, Codex runs exec per message
 
   private isSpawned: boolean = false;
-  private totalTokensUsed: number = 0;
 
   /**
    * "Spawn" the CLI adapter - marks it as ready to receive messages.
@@ -465,6 +465,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
   async sendInput(message: string, attachments?: any[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
+    }
+
+    if (attachments && attachments.length > 0) {
+      throw new Error('Codex adapter does not support attachments in orchestrator mode.');
     }
 
     this.emit('status', 'busy' as InstanceStatus);
@@ -523,13 +527,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Update context/usage tracking
+      // Update context usage using current-turn occupancy, not cumulative lifetime usage.
+      // In exec-per-message mode, summing turn usage can falsely hit compaction thresholds.
       if (response.usage) {
-        this.totalTokensUsed += response.usage.totalTokens || 0;
+        const usedTokens = response.usage.inputTokens !== undefined ||
+          response.usage.outputTokens !== undefined
+          ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
+          : (response.usage.totalTokens || 0);
+        const contextWindow = this.getCapabilities().contextWindow;
         const contextUsage: ContextUsage = {
-          used: this.totalTokensUsed,
-          total: 128000, // GPT-4 context window
-          percentage: Math.min((this.totalTokensUsed / 128000) * 100, 100),
+          used: usedTokens,
+          total: contextWindow,
+          percentage: Math.min((usedTokens / contextWindow) * 100, 100),
         };
         this.emit('context', contextUsage);
       }
@@ -554,6 +563,5 @@ export class CodexCliAdapter extends BaseCliAdapter {
   override async terminate(graceful: boolean = true): Promise<void> {
     await super.terminate(graceful);
     this.isSpawned = false;
-    this.totalTokensUsed = 0;
   }
 }

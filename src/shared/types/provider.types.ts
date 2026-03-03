@@ -150,6 +150,7 @@ export const CLAUDE_MODELS = {
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
+  GPT53_CODEX: 'gpt-5.3-codex',
   GPT4O: 'gpt-4o',
   GPT4O_MINI: 'gpt-4o-mini',
   GPT4_TURBO: 'gpt-4-turbo',
@@ -255,6 +256,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: CLAUDE_MODELS.HAIKU, name: 'Haiku (latest)', tier: 'fast' },
   ],
   codex: [
+    { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'powerful' },
     { id: OPENAI_MODELS.GPT4O, name: 'GPT-4o', tier: 'powerful' },
     { id: OPENAI_MODELS.GPT4O_MINI, name: 'GPT-4o Mini', tier: 'fast' },
     { id: OPENAI_MODELS.GPT4_TURBO, name: 'GPT-4 Turbo', tier: 'balanced' },

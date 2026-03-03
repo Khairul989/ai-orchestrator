@@ -85,7 +85,7 @@ describe('AgentStore', () => {
 
         expect(codexPreference).toBeDefined();
         expect(codexPreference?.command).toBe('codex');
-        expect(codexPreference?.defaultModel).toBe('codex-mini-latest');
+        expect(codexPreference?.defaultModel).toBe('gpt-5.3-codex');
         expect(codexPreference?.defaultTimeout).toBe(300);
         expect(codexPreference?.autoApprove).toBe(false);
         expect(codexPreference?.personality).toBe('methodical-analyst');
@@ -372,7 +372,7 @@ describe('AgentStore', () => {
             },
             codex: {
               command: 'codex',
-              defaultModel: 'codex-mini-latest',
+              defaultModel: 'gpt-5.3-codex',
               defaultTimeout: 300,
               autoApprove: false,
               personality: 'methodical-analyst',
@@ -416,7 +416,7 @@ describe('AgentStore', () => {
             },
             codex: {
               command: 'codex',
-              defaultModel: 'codex-mini-latest',
+              defaultModel: 'gpt-5.3-codex',
               defaultTimeout: 300,
               autoApprove: false,
               personality: 'methodical-analyst',
@@ -464,7 +464,7 @@ describe('AgentStore', () => {
             },
             codex: {
               command: 'codex',
-              defaultModel: 'codex-mini-latest',
+              defaultModel: 'gpt-5.3-codex',
               defaultTimeout: 300,
               autoApprove: false,
               personality: 'methodical-analyst',

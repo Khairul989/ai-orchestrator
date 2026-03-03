@@ -402,4 +402,84 @@ export function registerTrainingHandlers(): void {
       }
     }
   );
+
+  // ============ Enhanced Dashboard Handlers ============
+
+  // Get agent/task performance metrics
+  ipcMain.handle(
+    'training:get-agent-performance',
+    async (): Promise<IpcResponse> => {
+      try {
+        const { getGRPOTrainer } = await import('../learning/grpo-trainer');
+        const metrics = getGRPOTrainer().getAgentPerformance();
+        return { success: true, data: metrics };
+      } catch (error) {
+        return { success: false, error: createErrorInfo(error) };
+      }
+    }
+  );
+
+  // Get detected training patterns
+  ipcMain.handle(
+    'training:get-patterns',
+    async (): Promise<IpcResponse> => {
+      try {
+        const { getGRPOTrainer } = await import('../learning/grpo-trainer');
+        const patterns = getGRPOTrainer().getPatterns();
+        return { success: true, data: patterns };
+      } catch (error) {
+        return { success: false, error: createErrorInfo(error) };
+      }
+    }
+  );
+
+  // Get actionable training insights
+  ipcMain.handle(
+    'training:get-insights',
+    async (): Promise<IpcResponse> => {
+      try {
+        const { getGRPOTrainer } = await import('../learning/grpo-trainer');
+        const insights = getGRPOTrainer().getInsights();
+        return { success: true, data: insights };
+      } catch (error) {
+        return { success: false, error: createErrorInfo(error) };
+      }
+    }
+  );
+
+  // Apply an insight (mark as applied)
+  ipcMain.handle(
+    'training:apply-insight',
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = payload as { insightId?: string } | undefined;
+        if (!data?.insightId) {
+          return { success: false, error: createErrorInfo(new Error('insightId required'), 'TRAINING_INVALID_PAYLOAD') };
+        }
+        const { getGRPOTrainer } = await import('../learning/grpo-trainer');
+        const applied = getGRPOTrainer().applyInsight(data.insightId);
+        return { success: applied, data: { insightId: data.insightId } };
+      } catch (error) {
+        return { success: false, error: createErrorInfo(error) };
+      }
+    }
+  );
+
+  // Dismiss an insight
+  ipcMain.handle(
+    'training:dismiss-insight',
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = payload as { insightId?: string } | undefined;
+        if (!data?.insightId) {
+          return { success: false, error: createErrorInfo(new Error('insightId required'), 'TRAINING_INVALID_PAYLOAD') };
+        }
+        const { getGRPOTrainer } = await import('../learning/grpo-trainer');
+        const dismissed = getGRPOTrainer().dismissInsight(data.insightId);
+        return { success: dismissed, data: { insightId: data.insightId } };
+      } catch (error) {
+        return { success: false, error: createErrorInfo(error) };
+      }
+    }
+  );
 }

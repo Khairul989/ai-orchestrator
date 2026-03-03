@@ -1,5 +1,5 @@
 /**
- * Instance Manager - Coordinator for all Claude Code instances
+ * Instance Manager - Coordinator for all CLI instances
  *
  * This is a thin coordinator that delegates to specialized managers:
  * - InstanceStateManager: State, adapters, batch updates
@@ -39,6 +39,7 @@ import { InstancePersistenceManager } from './instance-persistence';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
+import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 
 const logger = getLogger('InstanceManager');
 
@@ -625,7 +626,7 @@ export class InstanceManager extends EventEmitter {
       name: `/${options.commandName}`,
       agentId: options.agent,
       model: options.model,
-      provider: parent.provider === 'openai' ? 'codex' : (parent.provider as any),
+      provider: parent.provider,
     };
 
     const childAgentId = this.orchestrationMgr.resolveChildAgentId(spawnCommand);
@@ -648,9 +649,9 @@ export class InstanceManager extends EventEmitter {
     const childPrompt = generateChildPrompt(tempChildId, parentId, spawnCommand.task);
 
     const resolvedProvider =
-      spawnCommand.provider === 'codex'
-        ? 'openai'
-        : (spawnCommand.provider || parent.provider || 'auto');
+      spawnCommand.provider ||
+      parent.provider ||
+      'auto';
 
     await this.createInstance({
       workingDirectory: parent.workingDirectory,
@@ -739,6 +740,14 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.getMemoryStats();
   }
 
+  getAdapterRuntimeCapabilities(instanceId: string): AdapterRuntimeCapabilities | null {
+    const adapter = this.state.getAdapter(instanceId);
+    if (!adapter || typeof (adapter as any).getRuntimeCapabilities !== 'function') {
+      return null;
+    }
+    return (adapter as any).getRuntimeCapabilities() as AdapterRuntimeCapabilities;
+  }
+
   // ============================================
   // Internal - Child Instance Creation
   // ============================================
@@ -777,8 +786,11 @@ export class InstanceManager extends EventEmitter {
     const childAgentId = this.orchestrationMgr.resolveChildAgentId(command);
 
     // Resolve provider
-    const commandProvider = command.provider === 'codex' ? 'openai' : command.provider;
-    const resolvedProvider = commandProvider || parent.provider || 'auto';
+    const commandProvider = command.provider;
+    const resolvedProvider =
+      commandProvider ||
+      parent.provider ||
+      'auto';
 
     // Pass relevant parent output to child for RLM indexing (limited for short-lived children)
     const initialOutputForChild = parent.outputBuffer

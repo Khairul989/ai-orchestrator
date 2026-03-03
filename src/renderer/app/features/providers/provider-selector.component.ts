@@ -8,7 +8,7 @@
 import { ChangeDetectionStrategy, Component, inject, output, signal, computed, OnInit } from '@angular/core';
 import { CliStore } from '../../core/state/cli.store';
 
-export type ProviderType = 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+export type ProviderType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
 
 export interface ProviderOption {
   id: ProviderType;
@@ -271,7 +271,7 @@ export class ProviderSelectorComponent implements OnInit {
       available: true,
     },
     {
-      id: 'openai',
+      id: 'codex',
       name: 'Codex',
       description: 'OpenAI Codex CLI',
       color: '#10A37F',
@@ -303,8 +303,6 @@ export class ProviderSelectorComponent implements OnInit {
       ...provider,
       available: detectedClis.some(cli =>
         cli.name === provider.id ||
-        // Map 'openai' provider to 'codex' CLI detection
-        (provider.id === 'openai' && cli.name === 'codex') ||
         // Map 'copilot' provider to 'copilot' CLI detection
         (provider.id === 'copilot' && cli.name === 'copilot')
       ),

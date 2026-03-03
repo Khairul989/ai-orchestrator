@@ -10,7 +10,6 @@
  */
 
 import { EventEmitter } from 'events';
-import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import type {
   DebateConfig,
   DebateSessionRound,
@@ -35,13 +34,15 @@ export class DebateCoordinator extends EventEmitter {
   private static instance: DebateCoordinator | null = null;
   private activeDebates: Map<string, ActiveDebate> = new Map();
   private completedDebates: Map<string, DebateResult> = new Map();
+  private pauseGates: Map<string, { resolve: () => void }> = new Map();
+  private interventions: Map<string, string[]> = new Map();
   private stats: DebateStats;
 
   private defaultConfig: DebateConfig = {
     agents: 3,
     maxRounds: 4,
     convergenceThreshold: 0.8,
-    synthesisModel: CLAUDE_MODELS.SONNET,
+    synthesisModel: 'default',
     temperatureRange: [0.3, 0.9],
     timeout: 300000, // 5 minutes
   };
@@ -86,7 +87,7 @@ export class DebateCoordinator extends EventEmitter {
     const count = this.listenerCount(eventName);
     if (count === 0) {
       logger.warn(`No handlers registered for "${eventName}" event`, {
-        hint: 'This is an extensibility point requiring an external handler. See CLAUDE.md for integration.'
+        hint: 'This is an extensibility point requiring an external handler. Register debate:* listeners in main-process integration.'
       });
       throw new Error(
         `No handler registered for ${eventName}. ` +
@@ -130,6 +131,12 @@ export class DebateCoordinator extends EventEmitter {
 
       // Rounds 2-N: Critique and defense
       while (debate.currentRound < debate.config.maxRounds - 1) {
+        // Wait if paused
+        await this.waitIfPaused(debate.id);
+
+        // Check for cancellation after pause
+        if (debate.status === 'cancelled') break;
+
         // Check for early convergence
         const lastRound = debate.rounds[debate.rounds.length - 1];
         if (lastRound.consensusScore >= debate.config.convergenceThreshold) {
@@ -140,6 +147,17 @@ export class DebateCoordinator extends EventEmitter {
         if (Date.now() - debate.startTime > debate.config.timeout) {
           debate.status = 'timeout';
           break;
+        }
+
+        // Inject any pending interventions as additional context
+        const pendingInterventions = this.interventions.get(debate.id);
+        if (pendingInterventions && pendingInterventions.length > 0) {
+          const interventionContext = pendingInterventions.join('\n\n');
+          debate.context = debate.context
+            ? `${debate.context}\n\n[User Intervention]:\n${interventionContext}`
+            : `[User Intervention]:\n${interventionContext}`;
+          this.interventions.set(debate.id, []);
+          this.emit('debate:intervention-applied', { debateId: debate.id });
         }
 
         // Alternate between critique and defense rounds
@@ -823,6 +841,17 @@ Provide your synthesis:`;
     this.stats.avgTokensUsed = (this.stats.avgTokensUsed * n + result.tokensUsed) / (n + 1);
   }
 
+  // ============ Pause/Resume Support ============
+
+  private async waitIfPaused(debateId: string): Promise<void> {
+    const debate = this.activeDebates.get(debateId);
+    if (!debate || debate.status !== 'paused') return;
+
+    await new Promise<void>((resolve) => {
+      this.pauseGates.set(debateId, { resolve });
+    });
+  }
+
   // ============ Public API ============
 
   getDebate(debateId: string): ActiveDebate | DebateResult | undefined {
@@ -838,7 +867,52 @@ Provide your synthesis:`;
     if (!debate) return false;
 
     debate.status = 'cancelled';
+    // Unblock any paused wait
+    const gate = this.pauseGates.get(debateId);
+    if (gate) {
+      gate.resolve();
+      this.pauseGates.delete(debateId);
+    }
+    this.interventions.delete(debateId);
     this.finalizeDebate(debate);
+    return true;
+  }
+
+  pauseDebate(debateId: string): boolean {
+    const debate = this.activeDebates.get(debateId);
+    if (!debate || debate.status !== 'in_progress') return false;
+
+    debate.status = 'paused';
+    this.emit('debate:paused', { debateId });
+    logger.info('Debate paused', { debateId });
+    return true;
+  }
+
+  resumeDebate(debateId: string): boolean {
+    const debate = this.activeDebates.get(debateId);
+    if (!debate || debate.status !== 'paused') return false;
+
+    debate.status = 'in_progress';
+    const gate = this.pauseGates.get(debateId);
+    if (gate) {
+      gate.resolve();
+      this.pauseGates.delete(debateId);
+    }
+    this.emit('debate:resumed', { debateId });
+    logger.info('Debate resumed', { debateId });
+    return true;
+  }
+
+  intervene(debateId: string, message: string): boolean {
+    const debate = this.activeDebates.get(debateId);
+    if (!debate) return false;
+    if (debate.status !== 'in_progress' && debate.status !== 'paused') return false;
+
+    const existing = this.interventions.get(debateId) || [];
+    existing.push(message);
+    this.interventions.set(debateId, existing);
+    this.emit('debate:intervention-queued', { debateId, message });
+    logger.info('Intervention queued for debate', { debateId });
     return true;
   }
 

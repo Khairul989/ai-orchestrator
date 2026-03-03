@@ -1,8 +1,7 @@
 /**
- * Orchestration Protocol - Defines the communication protocol for Claude to control the orchestrator
+ * Orchestration Protocol - Defines the communication protocol for parent instances to control the orchestrator
  */
 
-import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import type {
   ReportResultCommand,
@@ -44,8 +43,8 @@ export interface SpawnChildCommand {
   workingDirectory?: string;
   agentId?: string;
   model?: string;
-  /** CLI provider to use: 'claude', 'codex', 'gemini', or 'auto' (default) */
-  provider?: 'claude' | 'codex' | 'gemini' | 'auto';
+  /** CLI provider to use: 'claude', 'codex', 'gemini', 'copilot', or 'auto' (default) */
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
   /** Explicitly enable YOLO for this child (requires user confirmation upstream) */
   yoloMode?: boolean;
 }
@@ -187,7 +186,7 @@ export type OrchestratorCommand =
   | ConsensusQueryCommand;
 
 /**
- * Generate the system prompt that explains orchestration capabilities to Claude
+ * Generate the system prompt that explains orchestration capabilities to a parent instance
  */
 export function generateOrchestrationPrompt(
   instanceId: string,
@@ -222,9 +221,9 @@ ${modelIdentity}You are a **parent instance** in AI Orchestrator. You spawn and 
 ### Model Routing
 
 Children are auto-routed by complexity. Specify \`model\` to override.
-- **Simple** (lookups, status checks) → Haiku
-- **Moderate** (standard dev) → Sonnet
-- **Complex** (architecture, security) → Opus
+- **Simple** (lookups, status checks) → fast model tier
+- **Moderate** (standard dev) → balanced model tier
+- **Complex** (architecture, security) → powerful model tier
 
 ### Commands
 
@@ -278,7 +277,7 @@ ${ORCHESTRATION_MARKER_END}
 Options: \`providers\` (default: all), \`strategy\` ("majority"|"weighted"|"all"), \`timeout\` (seconds, default: 60)
 
 ---
-**Models:** \`${CLAUDE_MODELS.HAIKU}\`, \`${CLAUDE_MODELS.SONNET}\`, \`${CLAUDE_MODELS.OPUS}\` (leave unspecified for auto-routing)
+**Model tiers:** \`fast\`, \`balanced\`, \`powerful\` (or set an explicit model ID)
 **Providers:** \`claude\`, \`codex\`, \`gemini\`, \`copilot\`, \`auto\` (default)
 **Instance ID:** ${instanceId}
 `;
@@ -498,7 +497,7 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Format a response to send back to Claude about command execution
+ * Format a response to send back to a parent instance about command execution
  */
 export function formatCommandResponse(
   action: OrchestratorAction,

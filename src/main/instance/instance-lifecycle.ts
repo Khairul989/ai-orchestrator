@@ -6,7 +6,6 @@ import { EventEmitter } from 'events';
 import { app } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { ClaudeCliAdapter } from '../cli/claude-cli-adapter';
 import {
   createCliAdapter,
   resolveCliType,
@@ -15,7 +14,8 @@ import {
   type CliAdapter
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
-import { getModelsForProvider } from '../../shared/types/provider.types';
+import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { getModelsForProvider, OPENAI_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
@@ -70,7 +70,7 @@ export interface LifecycleDependencies {
   markFirstMessageReceived: (instanceId: string) => void;
 }
 
-// MCP config file for spawned Claude CLI instances (LSP server, etc.)
+// MCP config file for spawned CLI instances (LSP server, etc.)
 // In packaged app: extraResources places config/ in Contents/Resources/config/
 // In dev mode: config/ is at project root, 3 levels up from dist/main/instance/
 const MCP_CONFIG_PATH = app.isPackaged
@@ -84,7 +84,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private deps: LifecycleDependencies;
 
-  /** Returns MCP config paths to pass to spawned Claude CLI instances. */
+  /** Returns MCP config paths to pass to spawned CLI instances. */
   private getMcpConfig(): string[] {
     try {
       if (require('fs').existsSync(MCP_CONFIG_PATH)) {
@@ -110,12 +110,92 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.setupMemoryMonitoring();
   }
 
+  private getAdapterRuntimeCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {
+    if (adapter && typeof (adapter as any).getRuntimeCapabilities === 'function') {
+      return (adapter as any).getRuntimeCapabilities() as AdapterRuntimeCapabilities;
+    }
+    return {
+      supportsResume: false,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+    };
+  }
+
+  private async resolveCliTypeForInstance(instance: Instance): Promise<CliType> {
+    const settingsAll = this.settings.getAll();
+    return resolveCliType(instance.provider, settingsAll.defaultCli);
+  }
+
+  private extractUnresolvedItems(messages: OutputMessage[]): string[] {
+    const unresolved = new Set<string>();
+
+    for (const message of messages.slice(-30)) {
+      const todoMatches = message.content.match(/- \[ \]\s+(.+)/gi);
+      if (todoMatches) {
+        for (const match of todoMatches) {
+          unresolved.add(match.replace(/^- \[ \]\s+/i, '').trim());
+        }
+      }
+
+      const todoLineMatches = message.content.match(/(?:^|\n)\s*(?:todo|next|follow-up)\s*[:\-]\s*(.+)/gi);
+      if (todoLineMatches) {
+        for (const match of todoLineMatches) {
+          unresolved.add(match.replace(/(?:^|\n)\s*(?:todo|next|follow-up)\s*[:\-]\s*/i, '').trim());
+        }
+      }
+    }
+
+    return Array.from(unresolved).filter(Boolean).slice(0, 5);
+  }
+
+  private buildReplayContinuityMessage(instance: Instance, reason: string): string {
+    const userAndAssistant = instance.outputBuffer
+      .filter((message) => message.type === 'user' || message.type === 'assistant')
+      .slice(-8);
+
+    const recentTurns = userAndAssistant.map((message) => {
+      const role = message.type === 'user' ? 'User' : 'Assistant';
+      const content = message.content.length > 400
+        ? `${message.content.slice(0, 400)}...[truncated]`
+        : message.content;
+      return `- ${role}: ${content}`;
+    });
+
+    const latestUserMessage = [...instance.outputBuffer]
+      .reverse()
+      .find((message) => message.type === 'user');
+    const currentObjective = latestUserMessage?.content || 'Continue the previous task.';
+    const unresolvedItems = this.extractUnresolvedItems(instance.outputBuffer);
+
+    const unresolvedSection = unresolvedItems.length > 0
+      ? unresolvedItems.map(item => `- ${item}`).join('\n')
+      : '- None explicitly captured.';
+
+    return [
+      '[SYSTEM CONTINUITY NOTICE]',
+      `Native resume is unavailable for this provider. Continuity mode is replay-based (${reason}).`,
+      '',
+      'Current objective:',
+      currentObjective,
+      '',
+      'Unresolved items:',
+      unresolvedSection,
+      '',
+      'Recent conversation:',
+      recentTurns.length > 0 ? recentTurns.join('\n') : '- No recent turns available.',
+      '',
+      'Continue from this state and ask for clarification only if essential context is missing.',
+      '[END CONTINUITY NOTICE]',
+    ].join('\n');
+  }
+
   // ============================================
-  // CLAUDE.md Prompt Loading
+  // Instruction Prompt Loading
   // ============================================
 
   /**
-   * Parse frontmatter from CLAUDE.md file
+   * Parse frontmatter from instruction markdown file
    */
   private parseClaudeMdFrontmatter(content: string): Record<string, string> {
     const metadata: Record<string, string> = {};
@@ -141,45 +221,40 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   /**
-   * Load CLAUDE.md prompt hierarchy
-   * Returns array of prompt contents (global first, then project)
+   * Load instruction hierarchy with backward compatibility:
+   * 1) ~/.orchestrator/INSTRUCTIONS.md
+   * 2) ~/.claude/CLAUDE.md (legacy)
+   * 3) <workDir>/.orchestrator/INSTRUCTIONS.md
+   * 4) <workDir>/.claude/CLAUDE.md (legacy)
    */
   private async loadPromptHierarchy(workDir: string): Promise<string[]> {
     const prompts: string[] = [];
 
-    // Load global CLAUDE.md from ~/.claude/CLAUDE.md
-    try {
-      const homeDir = app.getPath('home');
-      const globalClaudeMdPath = path.join(homeDir, '.claude', 'CLAUDE.md');
-      const globalContent = await fs.readFile(globalClaudeMdPath, 'utf-8');
+    const homeDir = app.getPath('home');
+    const candidates: Array<{ filePath: string; label: string }> = [
+      { filePath: path.join(homeDir, '.orchestrator', 'INSTRUCTIONS.md'), label: 'global instructions' },
+      { filePath: path.join(homeDir, '.claude', 'CLAUDE.md'), label: 'global CLAUDE.md (legacy)' },
+      { filePath: path.join(workDir, '.orchestrator', 'INSTRUCTIONS.md'), label: 'project instructions' },
+      { filePath: path.join(workDir, '.claude', 'CLAUDE.md'), label: 'project CLAUDE.md (legacy)' },
+    ];
 
-      // Remove frontmatter for inclusion in system prompt
-      const contentWithoutFrontmatter = globalContent.replace(/^---\n[\s\S]*?\n---\n/, '');
-      if (contentWithoutFrontmatter.trim()) {
-        prompts.push(contentWithoutFrontmatter.trim());
+    for (const candidate of candidates) {
+      try {
+        const content = await fs.readFile(candidate.filePath, 'utf-8');
+        const contentWithoutFrontmatter = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+        if (contentWithoutFrontmatter.trim()) {
+          prompts.push(contentWithoutFrontmatter.trim());
+          logger.debug('Loaded instruction prompt', {
+            label: candidate.label,
+            path: candidate.filePath,
+          });
+        }
+      } catch {
+        logger.debug('Instruction file not found (optional)', {
+          label: candidate.label,
+          path: candidate.filePath,
+        });
       }
-
-      logger.debug('Loaded global CLAUDE.md prompt', { path: globalClaudeMdPath });
-    } catch {
-      // Global CLAUDE.md is optional
-      logger.debug('No global CLAUDE.md found (optional)');
-    }
-
-    // Load project CLAUDE.md from {workDir}/.claude/CLAUDE.md
-    try {
-      const projectClaudeMdPath = path.join(workDir, '.claude', 'CLAUDE.md');
-      const projectContent = await fs.readFile(projectClaudeMdPath, 'utf-8');
-
-      // Remove frontmatter for inclusion in system prompt
-      const contentWithoutFrontmatter = projectContent.replace(/^---\n[\s\S]*?\n---\n/, '');
-      if (contentWithoutFrontmatter.trim()) {
-        prompts.push(contentWithoutFrontmatter.trim());
-      }
-
-      logger.debug('Loaded project CLAUDE.md prompt', { path: projectClaudeMdPath });
-    } catch {
-      // Project CLAUDE.md is optional
-      logger.debug('No project CLAUDE.md found (optional)');
     }
 
     return prompts;
@@ -335,17 +410,17 @@ export class InstanceLifecycleManager extends EventEmitter {
     // Get disallowed tools based on agent permissions
     const disallowedTools = getDisallowedTools(resolvedAgent.permissions);
 
-    // Load CLAUDE.md prompt hierarchy (skip for child instances to reduce token overhead)
-    const claudeMdPrompts = instance.depth === 0
+    // Load instruction hierarchy (skip for child instances to reduce token overhead)
+    const instructionPrompts = instance.depth === 0
       ? await this.loadPromptHierarchy(instance.workingDirectory)
       : [];
 
-    // Build system prompt with CLAUDE.md content prepended
+    // Build system prompt with instruction content prepended
     let systemPrompt = resolvedAgent.systemPrompt || '';
-    if (claudeMdPrompts.length > 0) {
-      const claudeMdSection = claudeMdPrompts.join('\n\n---\n\n');
-      systemPrompt = `${claudeMdSection}\n\n---\n\n${systemPrompt}`;
-      logger.info('Prepended CLAUDE.md prompts to system prompt', { count: claudeMdPrompts.length });
+    if (instructionPrompts.length > 0) {
+      const instructionSection = instructionPrompts.join('\n\n---\n\n');
+      systemPrompt = `${instructionSection}\n\n---\n\n${systemPrompt}`;
+      logger.info('Prepended instruction prompts to system prompt', { count: instructionPrompts.length });
     }
 
     // Inject observation memory context (learned reflections from past sessions)
@@ -385,19 +460,22 @@ export class InstanceLifecycleManager extends EventEmitter {
     let resolvedModel = config.modelOverride || resolvedAgent.modelOverride || settingsModel || undefined;
 
     // Validate model against the target provider's supported models.
-    // If the model isn't recognized (e.g., Claude "opus" passed to Gemini), drop it
+    // If the model isn't recognized (e.g., a model from another provider), drop it
     // so the provider uses its own default rather than failing with ModelNotFound.
     if (resolvedModel && resolvedCliType !== 'claude') {
       const providerModels = getModelsForProvider(resolvedCliType);
       if (providerModels.length > 0) {
         const isValid = providerModels.some(m => m.id === resolvedModel);
         if (!isValid) {
+          const fallbackModel =
+            resolvedCliType === 'codex' ? OPENAI_MODELS.GPT53_CODEX : undefined;
           logger.warn('Model not valid for target provider, using provider default', {
             model: resolvedModel,
             provider: resolvedCliType,
-            validModels: providerModels.map(m => m.id)
+            validModels: providerModels.map(m => m.id),
+            fallbackModel: fallbackModel || 'provider-default',
           });
-          resolvedModel = undefined;
+          resolvedModel = fallbackModel;
         }
       }
     }
@@ -645,12 +723,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps.clearFirstMessageTracking(instanceId);
 
     // Create new adapter
-    const cliType =
-      instance.provider === 'auto' || instance.provider === 'openai'
-        ? instance.provider === 'openai'
-          ? 'codex'
-          : 'claude'
-        : (instance.provider as CliType);
+    const cliType = await this.resolveCliTypeForInstance(instance);
 
     const spawnOptions: UnifiedSpawnOptions = {
       sessionId: newSessionId,
@@ -712,8 +785,13 @@ export class InstanceLifecycleManager extends EventEmitter {
     const oldAgentId = instance.agentId;
     logger.info('Changing agent mode', { instanceId, oldAgentId, newAgentId });
 
+    const hasConversation = instance.outputBuffer.some(
+      (msg) => msg.type === 'user' || msg.type === 'assistant'
+    );
+
     // Terminate existing adapter
     const oldAdapter = this.deps.getAdapter(instanceId);
+    const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
     if (oldAdapter) {
       await oldAdapter.terminate(true);
       this.deps.deleteAdapter(instanceId);
@@ -742,12 +820,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
     ];
 
-    const cliType =
-      instance.provider === 'auto' || instance.provider === 'openai'
-        ? instance.provider === 'openai'
-          ? 'codex'
-          : 'claude'
-        : (instance.provider as CliType);
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
 
     const spawnOptions: UnifiedSpawnOptions = {
       sessionId: instance.sessionId,
@@ -757,7 +831,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       model: instance.currentModel,
       allowedTools: defaultAllowedTools,
       disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-      resume: true,
+      resume: shouldResume,
       mcpConfig: this.getMcpConfig(),
     };
 
@@ -770,7 +844,11 @@ export class InstanceLifecycleManager extends EventEmitter {
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
-      logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid });
+      logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid, resumed: shouldResume });
+
+      if (!shouldResume && hasConversation) {
+        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'agent-mode-change'));
+      }
 
       // Build a mode transition message. When resuming, the system prompt can't be changed,
       // so we send an authoritative message that overrides the previous mode's instructions.
@@ -842,6 +920,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
     // Terminate existing adapter
     const oldAdapter = this.deps.getAdapter(instanceId);
+    const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
     if (oldAdapter) {
       logger.debug('Terminating old adapter', { instanceId });
       // Delete from map FIRST to prevent race condition with exit handler
@@ -870,12 +949,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
     ];
 
-    const cliType =
-      instance.provider === 'auto' || instance.provider === 'openai'
-        ? instance.provider === 'openai'
-          ? 'codex'
-          : 'claude'
-        : (instance.provider as CliType);
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
 
     const spawnOptions: UnifiedSpawnOptions = {
       sessionId: instance.sessionId,
@@ -885,7 +960,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       allowedTools,
       disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
       // Only resume if there's actually a conversation to continue
-      resume: hasConversation,
+      resume: shouldResume,
       mcpConfig: this.getMcpConfig(),
     };
     logger.debug('Spawn options configured', {
@@ -910,8 +985,12 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
-      logger.info('YOLO mode toggled successfully', { instanceId, pid, newYoloMode });
+      logger.info('YOLO mode toggled successfully', { instanceId, pid, newYoloMode, resumed: shouldResume });
       logger.debug('Adapter exists after spawn', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
+
+      if (!shouldResume && hasConversation) {
+        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'yolo-toggle'));
+      }
 
       const modeMessage = newYoloMode
         ? '[System: YOLO mode enabled - all tool permissions are now auto-approved.]'
@@ -971,6 +1050,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
     // Terminate existing adapter
     const oldAdapter = this.deps.getAdapter(instanceId);
+    const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
     if (oldAdapter) {
       this.deps.deleteAdapter(instanceId);
       await oldAdapter.terminate(true);
@@ -989,23 +1069,21 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       'NotebookEdit', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ExitPlanMode'
     ];
 
-    const cliType =
-      instance.provider === 'auto' || instance.provider === 'openai'
-        ? instance.provider === 'openai'
-          ? 'codex'
-          : 'claude'
-        : (instance.provider as CliType);
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
 
     // Validate model against provider before passing it
     let validatedModel: string | undefined = newModel;
     if (cliType !== 'claude') {
       const providerModels = getModelsForProvider(cliType);
       if (providerModels.length > 0 && !providerModels.some(m => m.id === newModel)) {
+        const fallbackModel = cliType === 'codex' ? OPENAI_MODELS.GPT53_CODEX : undefined;
         logger.warn('Model not valid for target provider during changeModel, using provider default', {
           model: newModel,
           provider: cliType,
+          fallbackModel: fallbackModel || 'provider-default',
         });
-        validatedModel = undefined;
+        validatedModel = fallbackModel;
       }
     }
 
@@ -1017,7 +1095,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       yoloMode: instance.yoloMode,
       allowedTools,
       disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-      resume: hasConversation,
+      resume: shouldResume,
       mcpConfig: this.getMcpConfig(),
     };
 
@@ -1029,7 +1107,16 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
-      logger.info('Model changed successfully', { instanceId, pid, newModel: validatedModel || 'provider-default' });
+      logger.info('Model changed successfully', {
+        instanceId,
+        pid,
+        newModel: validatedModel || 'provider-default',
+        resumed: shouldResume,
+      });
+
+      if (!shouldResume && hasConversation) {
+        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'model-change'));
+      }
 
       // Notify the instance about the model change
       await adapter.sendInput(
@@ -1098,44 +1185,38 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       throw new Error(`Instance ${instanceId} not found`);
     }
 
+    const previousAdapter = this.deps.getAdapter(instanceId);
+    const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
     const sessionId = instance.sessionId;
     logger.debug('Respawning with session ID', { instanceId, sessionId });
-
-    if (!sessionId) {
+    if (!sessionId && capabilities.supportsResume) {
       throw new Error(`Instance ${instanceId} has no session ID to resume`);
     }
+    const hasConversation = instance.outputBuffer.some(
+      (msg) => msg.type === 'user' || msg.type === 'assistant'
+    );
+    const shouldResume = capabilities.supportsResume && Boolean(sessionId);
+    const shouldForkSession = shouldResume && capabilities.supportsForkSession;
 
-    const newSessionId = generateId();
+    const newSessionId = shouldResume && shouldForkSession
+      ? generateId()
+      : shouldResume
+        ? sessionId
+        : generateId();
     instance.sessionId = newSessionId;
 
-    const cliType =
-      instance.provider === 'auto' || instance.provider === 'openai'
-        ? instance.provider === 'openai'
-          ? 'codex'
-          : 'claude'
-        : (instance.provider as CliType);
+    const cliType = await this.resolveCliTypeForInstance(instance);
 
-    let adapter: CliAdapter;
-    if (cliType === 'claude') {
-      adapter = new ClaudeCliAdapter({
-        workingDirectory: instance.workingDirectory,
-        sessionId: sessionId,
-        yoloMode: instance.yoloMode,
-        model: instance.currentModel,
-        resume: true,
-        forkSession: true,
-        mcpConfig: this.getMcpConfig(),
-      });
-    } else {
-      const spawnOptions: UnifiedSpawnOptions = {
-        sessionId: newSessionId,
-        workingDirectory: instance.workingDirectory,
-        yoloMode: instance.yoloMode,
-        model: instance.currentModel,
-        mcpConfig: this.getMcpConfig(),
-      };
-      adapter = createCliAdapter(cliType, spawnOptions);
-    }
+    const spawnOptions: UnifiedSpawnOptions = {
+      sessionId: shouldResume ? sessionId : newSessionId,
+      workingDirectory: instance.workingDirectory,
+      yoloMode: instance.yoloMode,
+      model: instance.currentModel,
+      resume: shouldResume,
+      forkSession: shouldForkSession,
+      mcpConfig: this.getMcpConfig(),
+    };
+    const adapter = createCliAdapter(cliType, spawnOptions);
     this.deps.setupAdapterEvents(instanceId, adapter);
     this.deps.setAdapter(instanceId, adapter);
 
@@ -1147,6 +1228,10 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       instance.processId = pid;
       instance.status = 'idle';
       instance.lastActivity = Date.now();
+
+      if (!shouldResume && hasConversation) {
+        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'interrupt-respawn'));
+      }
 
       const message = {
         id: generateId(),

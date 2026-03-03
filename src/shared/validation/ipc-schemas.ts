@@ -38,7 +38,7 @@ export const InstanceCreatePayloadSchema = z.object({
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   yoloMode: z.boolean().optional(),
   agentId: z.string().max(100).optional(),
-  provider: z.enum(['auto', 'claude', 'openai', 'codex', 'gemini', 'copilot']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot']).optional(),
   model: z.string().max(100).optional(),
 });
 
@@ -48,7 +48,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   message: z.string().min(0).max(500000),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
-  provider: z.enum(['auto', 'claude', 'openai', 'gemini', 'copilot']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot']).optional(),
   model: z.string().max(100).optional(),
 });
 
@@ -1931,6 +1931,58 @@ export const InstanceCompactPayloadSchema = z.object({
 });
 
 export type ValidatedInstanceCompactPayload = z.infer<typeof InstanceCompactPayloadSchema>;
+
+// ============ Consensus Payloads ============
+
+export const ConsensusProviderSpecSchema = z.object({
+  provider: z.enum(['claude', 'codex', 'gemini', 'copilot']),
+  model: z.string().optional(),
+  weight: z.number().optional(),
+});
+
+export const ConsensusQueryPayloadSchema = z.object({
+  question: z.string().min(1).max(10000),
+  context: z.string().max(50000).optional(),
+  providers: z.array(ConsensusProviderSpecSchema).optional(),
+  strategy: z.enum(['majority', 'weighted', 'all']).optional(),
+  timeout: z.number().positive().optional(),
+  workingDirectory: z.string().max(2000).optional(),
+});
+
+export const ConsensusAbortPayloadSchema = z.object({
+  queryId: z.string().min(1).max(200),
+});
+
+export type ValidatedConsensusQueryPayload = z.infer<typeof ConsensusQueryPayloadSchema>;
+export type ValidatedConsensusAbortPayload = z.infer<typeof ConsensusAbortPayloadSchema>;
+
+// ============ Parallel Worktree Payloads ============
+
+export const ParallelWorktreeTaskSchema = z.object({
+  id: z.string().min(1).max(200),
+  description: z.string().min(1).max(10000),
+  files: z.array(z.string().min(1).max(2000)).max(500).optional(),
+  priority: z.number().int().min(0).max(100).optional(),
+  dependencies: z.array(z.string().min(1).max(200)).max(50).optional(),
+});
+
+export const ParallelWorktreeStartPayloadSchema = z.object({
+  tasks: z.array(ParallelWorktreeTaskSchema).min(1).max(20),
+  instanceId: InstanceIdSchema,
+  repoPath: z.string().min(1).max(2000),
+});
+
+export const ParallelWorktreeGetStatusPayloadSchema = z.object({
+  executionId: z.string().min(1).max(200),
+});
+
+export const ParallelWorktreeCancelPayloadSchema = z.object({
+  executionId: z.string().min(1).max(200),
+});
+
+export const ParallelWorktreeGetResultsPayloadSchema = z.object({
+  executionId: z.string().min(1).max(200),
+});
 
 // ============ Validation Helper ============
 

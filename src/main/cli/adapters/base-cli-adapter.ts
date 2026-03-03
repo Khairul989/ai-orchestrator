@@ -55,6 +55,20 @@ export interface CliCapabilities {
 }
 
 /**
+ * Runtime orchestration capabilities that influence lifecycle behavior.
+ */
+export interface AdapterRuntimeCapabilities {
+  /** Supports native session resume across adapter spawns */
+  supportsResume: boolean;
+  /** Supports forking a resumed session into a new session ID */
+  supportsForkSession: boolean;
+  /** Supports provider-native context compaction */
+  supportsNativeCompaction: boolean;
+  /** Supports interactive permission/input-required prompts */
+  supportsPermissionPrompts: boolean;
+}
+
+/**
  * Message to send to a CLI
  */
 export interface CliMessage {
@@ -304,6 +318,19 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   getConfig(): CliAdapterConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Runtime capabilities used by orchestrator lifecycle decisions.
+   * Subclasses should override this to advertise provider-specific behavior.
+   */
+  getRuntimeCapabilities(): AdapterRuntimeCapabilities {
+    return {
+      supportsResume: false,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+    };
   }
 
   // ============ Protected Helper Methods ============

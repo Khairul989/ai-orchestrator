@@ -92,7 +92,7 @@ export interface CreateInstanceConfig {
   parentId?: string;
   yoloMode?: boolean;
   agentId?: string;
-  provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
   model?: string;
 }
 

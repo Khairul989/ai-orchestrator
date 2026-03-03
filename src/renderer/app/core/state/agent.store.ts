@@ -49,7 +49,7 @@ const DEFAULT_PREFERENCES: Record<string, AgentPreference> = {
   },
   codex: {
     command: 'codex',
-    defaultModel: 'codex-mini-latest',
+    defaultModel: 'gpt-5.3-codex',
     defaultTimeout: 300,
     autoApprove: false,
     personality: 'methodical-analyst',

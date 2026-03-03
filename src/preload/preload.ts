@@ -536,7 +536,7 @@ const electronAPI = {
     attachments?: unknown[];
     yoloMode?: boolean;
     agentId?: string;
-    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
     model?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.INSTANCE_CREATE, payload);
@@ -549,7 +549,7 @@ const electronAPI = {
     workingDirectory: string;
     message: string;
     attachments?: unknown[];
-    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
     model?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(

@@ -37,8 +37,8 @@ export class GeminiCliProvider extends BaseProvider {
       toolExecution: true,
       streaming: true,
       multiTurn: true,
-      vision: true, // Gemini supports images
-      fileAttachments: true,
+      vision: false, // Attachment-based vision is not wired in orchestrator mode
+      fileAttachments: false,
       functionCalling: true,
       builtInCodeTools: true,
     };

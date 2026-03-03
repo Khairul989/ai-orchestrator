@@ -8,7 +8,8 @@
  */
 
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type CliType = 'claude' | 'gemini' | 'openai' | 'copilot' | 'auto';
+export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto';
+export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
 
 /**
@@ -148,7 +149,7 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'auto', label: 'Auto-detect' },
       { value: 'claude', label: 'Claude Code' },
       { value: 'gemini', label: 'Gemini CLI' },
-      { value: 'openai', label: 'OpenAI CLI' },
+      { value: 'codex', label: 'OpenAI Codex CLI' },
       { value: 'copilot', label: 'GitHub Copilot' }
     ]
   },
@@ -162,6 +163,7 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'opus', label: 'Opus (latest)' },
       { value: 'sonnet', label: 'Sonnet (latest)' },
       { value: 'haiku', label: 'Haiku (latest)' },
+      { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
       { value: 'gpt-4o', label: 'GPT-4o' },
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
       { value: 'o3', label: 'OpenAI o3' },

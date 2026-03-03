@@ -1,9 +1,9 @@
 /**
- * Instance Types - Core data models for Claude Code instances
+ * Instance Types - Core data models for AI CLI instances
  */
 
 import type { AgentMode } from './agent.types';
-import type { CliType } from './settings.types';
+import type { CanonicalCliType } from './settings.types';
 import type {
   TerminationPolicy,
   ContextInheritanceConfig,
@@ -13,7 +13,7 @@ import type {
 /**
  * CLI provider type for instances
  */
-export type InstanceProvider = CliType;
+export type InstanceProvider = CanonicalCliType;
 
 // ============================================
 // Session Export Types
@@ -158,7 +158,7 @@ export interface Instance {
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
   provider: InstanceProvider; // Which CLI provider is being used
-  currentModel?: string; // Current model override (e.g., 'claude-sonnet-4-5-20250929')
+  currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
 
   // Output
   outputBuffer: OutputMessage[];

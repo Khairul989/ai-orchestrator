@@ -47,6 +47,9 @@ export const IPC_CHANNELS = {
   COMM_SUBSCRIBE: 'comm:subscribe',
   COMM_CONTROL: 'comm:control-instance',
   COMM_CREATE_BRIDGE: 'comm:create-bridge',
+  COMM_GET_MESSAGES: 'comm:get-messages',
+  COMM_GET_BRIDGES: 'comm:get-bridges',
+  COMM_DELETE_BRIDGE: 'comm:delete-bridge',
 
   // Supervisor operations
   SUPERVISOR_STATUS: 'supervisor:status',
@@ -564,6 +567,10 @@ export const IPC_CHANNELS = {
   DEBATE_GET_ACTIVE: 'debate:get-active',
   DEBATE_CANCEL: 'debate:cancel',
   DEBATE_GET_STATS: 'debate:get-stats',
+  DEBATE_PAUSE: 'debate:pause',
+  DEBATE_RESUME: 'debate:resume',
+  DEBATE_STOP: 'debate:stop',
+  DEBATE_INTERVENE: 'debate:intervene',
 
   // Training operations (GRPO)
   TRAINING_RECORD_OUTCOME: 'training:record-outcome',
@@ -676,6 +683,28 @@ export const IPC_CHANNELS = {
 
   // Menu events (renderer-bound)
   MENU_NEW_INSTANCE: 'menu:new-instance',
+
+  // Consensus operations
+  CONSENSUS_QUERY: 'consensus:query',
+  CONSENSUS_ABORT: 'consensus:abort',
+  CONSENSUS_GET_ACTIVE: 'consensus:get-active',
+
+  // Model routing operations
+  ROUTING_GET_CONFIG: 'routing:get-config',
+  ROUTING_UPDATE_CONFIG: 'routing:update-config',
+  ROUTING_PREVIEW: 'routing:preview',
+  ROUTING_GET_TIER: 'routing:get-tier',
+  HOT_SWITCH_GET_CONFIG: 'hot-switch:get-config',
+  HOT_SWITCH_UPDATE_CONFIG: 'hot-switch:update-config',
+  HOT_SWITCH_PERFORM: 'hot-switch:perform',
+  HOT_SWITCH_GET_STATS: 'hot-switch:get-stats',
+
+  // Parallel worktree operations
+  PARALLEL_WORKTREE_START: 'parallel-worktree:start',
+  PARALLEL_WORKTREE_GET_STATUS: 'parallel-worktree:get-status',
+  PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
+  PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
+  PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

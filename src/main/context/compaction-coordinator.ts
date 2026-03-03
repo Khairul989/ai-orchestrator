@@ -51,8 +51,8 @@ export class CompactionCoordinator extends EventEmitter {
   private nativeCompactStrategy: CompactionStrategy | null = null;
   private restartCompactStrategy: CompactionStrategy | null = null;
 
-  // Provider lookup
-  private getInstanceProvider: ((instanceId: string) => string | undefined) | null = null;
+  // Native compaction capability lookup
+  private supportsNativeCompactionForInstance: ((instanceId: string) => boolean) | null = null;
 
   private static instance: CompactionCoordinator | null = null;
 
@@ -80,11 +80,13 @@ export class CompactionCoordinator extends EventEmitter {
   configure(options: {
     nativeCompact?: CompactionStrategy;
     restartCompact?: CompactionStrategy;
-    getInstanceProvider?: (instanceId: string) => string | undefined;
+    supportsNativeCompaction?: (instanceId: string) => boolean;
   }): void {
     if (options.nativeCompact) this.nativeCompactStrategy = options.nativeCompact;
     if (options.restartCompact) this.restartCompactStrategy = options.restartCompact;
-    if (options.getInstanceProvider) this.getInstanceProvider = options.getInstanceProvider;
+    if (options.supportsNativeCompaction) {
+      this.supportsNativeCompactionForInstance = options.supportsNativeCompaction;
+    }
   }
 
   /**
@@ -215,15 +217,14 @@ export class CompactionCoordinator extends EventEmitter {
     this.emit('compaction-started', { instanceId });
 
     try {
-      // Determine strategy based on provider
-      const provider = this.getInstanceProvider?.(instanceId);
-      const isClaudeCli = provider === 'claude';
+      // Determine strategy from adapter capability
+      const nativeCompactionSupported = this.supportsNativeCompactionForInstance?.(instanceId) ?? false;
 
       let success = false;
       let method: 'native' | 'restart-with-summary' = 'native';
 
-      if (isClaudeCli && this.nativeCompactStrategy) {
-        // Try native /compact first for Claude CLI
+      if (nativeCompactionSupported && this.nativeCompactStrategy) {
+        // Try native strategy first when provider supports it
         success = await this.nativeCompactStrategy(instanceId);
         method = 'native';
       }

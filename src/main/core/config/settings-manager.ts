@@ -42,6 +42,8 @@ export class SettingsManager extends EventEmitter {
 
     // Migrate stale model names to bare shorthand names
     this.migrateModelNames();
+    // Migrate legacy CLI alias to canonical provider key
+    this.migrateCliProviderAlias();
   }
 
   /**
@@ -62,6 +64,8 @@ export class SettingsManager extends EventEmitter {
       'claude-opus-4-20250514': 'opus',
       'claude-3-5-sonnet-20241022': 'sonnet',
       'claude-3-5-haiku-20241022': 'haiku',
+      // Legacy Codex alias
+      'codex-mini-latest': 'gpt-5.3-codex',
     };
 
     const currentModel = this.store.get('defaultModel');
@@ -69,6 +73,16 @@ export class SettingsManager extends EventEmitter {
       const newModel = MODEL_MIGRATION[currentModel];
       console.log(`[SettingsManager] Migrating defaultModel: '${currentModel}' → '${newModel}'`);
       this.store.set('defaultModel', newModel);
+    }
+  }
+
+  /**
+   * Migrate legacy defaultCli alias ("openai") to canonical runtime provider ("codex").
+   */
+  private migrateCliProviderAlias(): void {
+    const currentCli = this.store.get('defaultCli');
+    if (currentCli === 'openai') {
+      this.store.set('defaultCli', 'codex');
     }
   }
 
@@ -149,9 +163,14 @@ export class SettingsManager extends EventEmitter {
    * Set a single setting value
    */
   set<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
-    this.store.set(key, value);
-    this.emit('setting-changed', key, value);
-    this.emit(`setting:${key}`, value);
+    const normalizedValue =
+      key === 'defaultCli' && value === 'openai'
+        ? ('codex' as AppSettings[K])
+        : value;
+
+    this.store.set(key, normalizedValue);
+    this.emit('setting-changed', key, normalizedValue);
+    this.emit(`setting:${key}`, normalizedValue);
   }
 
   /**
@@ -159,8 +178,16 @@ export class SettingsManager extends EventEmitter {
    */
   update(settings: Partial<AppSettings>): void {
     for (const [key, value] of Object.entries(settings)) {
-      this.store.set(key as keyof AppSettings, value as AppSettings[keyof AppSettings]);
-      this.emit('setting-changed', key, value);
+      const normalizedValue =
+        key === 'defaultCli' && value === 'openai'
+          ? 'codex'
+          : value;
+
+      this.store.set(
+        key as keyof AppSettings,
+        normalizedValue as AppSettings[keyof AppSettings]
+      );
+      this.emit('setting-changed', key, normalizedValue);
     }
     this.emit('settings-updated', this.getAll());
   }

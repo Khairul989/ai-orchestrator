@@ -4,6 +4,7 @@
 
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
@@ -69,10 +70,35 @@ export class InstanceCommunicationManager extends EventEmitter {
   private lastSentMessages = new Map<string, { message: string; attachments?: any[]; contextBlock?: string | null }>();
   private contextWarningIssued = new Set<string>();
   private contextOverflowRetried = new Set<string>();
+  private contextOverflowSeen = new Set<string>(); // Tracks instances that hit context overflow via output path
+
+  // Repeated error suppression
+  private lastErrorContent = new Map<string, { content: string; count: number }>();
 
   constructor(deps: CommunicationDependencies) {
     super();
     this.deps = deps;
+  }
+
+  private getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
+    if (typeof (adapter as any).getRuntimeCapabilities === 'function') {
+      return (adapter as any).getRuntimeCapabilities() as AdapterRuntimeCapabilities;
+    }
+    return {
+      supportsResume: false,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+    };
+  }
+
+  /**
+   * Codex/Gemini adapters run in exec-per-message mode (stateless sessions).
+   * Context threshold warnings are not meaningful for these providers.
+   */
+  private isStatelessExecAdapter(adapter: CliAdapter): boolean {
+    const adapterName = adapter.getName().toLowerCase();
+    return adapterName.includes('codex') || adapterName.includes('gemini');
   }
 
   /**
@@ -167,6 +193,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.lastSentMessages.delete(instanceId);
     this.contextWarningIssued.delete(instanceId);
     this.contextOverflowRetried.delete(instanceId);
+    this.contextOverflowSeen.delete(instanceId);
+    this.lastErrorContent.delete(instanceId);
   }
 
   // ============================================
@@ -257,10 +285,15 @@ export class InstanceCommunicationManager extends EventEmitter {
       logger.info('Using permission key', { instanceId, permissionKey });
     }
 
+    const capabilities = this.getAdapterRuntimeCapabilities(adapter);
+    if (!capabilities.supportsPermissionPrompts) {
+      throw new Error('This provider does not support interactive permission prompts.');
+    }
+
     if ('sendRaw' in adapter && typeof (adapter as any).sendRaw === 'function') {
       await (adapter as any).sendRaw(response, permissionKey);
     } else {
-      await adapter.sendInput(response);
+      throw new Error('Permission prompt response is not supported by this adapter.');
     }
   }
 
@@ -404,6 +437,40 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
 
+        // Detect context-overflow errors arriving via NDJSON stdout path
+        // (these bypass the adapter 'error' event and need explicit handling)
+        if (message.type === 'error' && this.isContextOverflowMessage(message.content)) {
+          logger.warn('Context overflow detected via output path', { instanceId, content: message.content });
+
+          // Only show the first occurrence; suppress duplicates
+          if (!this.contextOverflowSeen.has(instanceId)) {
+            this.contextOverflowSeen.add(instanceId);
+            this.addToOutputBuffer(instance, message);
+            this.emit('output', { instanceId, message });
+
+            // Add guidance message
+            const guidanceMessage: OutputMessage = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system',
+              content: 'Context window limit reached. The instance has been stopped. Please start a new conversation or delegate large tasks to child instances.',
+              metadata: { contextOverflow: true, fatal: true }
+            };
+            this.addToOutputBuffer(instance, guidanceMessage);
+            this.emit('output', { instanceId, message: guidanceMessage });
+          }
+
+          // Force the instance to stop — don't let the CLI keep retrying
+          if (instance.status !== 'error' && instance.status !== 'terminated') {
+            instance.status = 'error';
+            this.deps.queueUpdate(instanceId, 'error');
+            this.forceCleanupAdapter(instanceId).catch((err) => {
+              logger.error('Failed to cleanup adapter after context overflow', err instanceof Error ? err : undefined, { instanceId });
+            });
+          }
+          return; // Don't add duplicate errors to buffer
+        }
+
         this.addToOutputBuffer(instance, message);
         this.emit('output', { instanceId, message });
 
@@ -442,11 +509,30 @@ export class InstanceCommunicationManager extends EventEmitter {
         instance.contextUsage = usage;
         instance.totalTokensUsed = usage.used;
         this.deps.queueUpdate(instanceId, instance.status, usage);
-        this.checkContextWarningThreshold(instanceId, instance, usage, adapter);
+        if (!this.isStatelessExecAdapter(adapter)) {
+          this.checkContextWarningThreshold(instanceId, instance, usage, adapter);
+        }
       }
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
+      const capabilities = this.getAdapterRuntimeCapabilities(adapter);
+      if (!capabilities.supportsPermissionPrompts) {
+        const instance = this.deps.getInstance(instanceId);
+        if (instance) {
+          const message: OutputMessage = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content: 'Provider does not support interactive permission prompts. Adjust permissions or switch provider.',
+            metadata: { inputRequiredIgnored: true },
+          };
+          this.addToOutputBuffer(instance, message);
+          this.emit('output', { instanceId, message });
+        }
+        return;
+      }
+
       logger.info('INPUT_REQUIRED event received', { instanceId, payload });
 
       this.emit('input-required', {
@@ -685,6 +771,24 @@ export class InstanceCommunicationManager extends EventEmitter {
    * Add message to instance output buffer
    */
   addToOutputBuffer(instance: Instance, message: OutputMessage): void {
+    // Suppress repeated identical error messages (e.g., "Prompt is too long" spam)
+    if (message.type === 'error') {
+      const lastError = this.lastErrorContent.get(instance.id);
+      if (lastError && lastError.content === message.content) {
+        lastError.count++;
+        if (lastError.count > 3) {
+          // Silently suppress after 3 identical errors
+          logger.info('Suppressing repeated error', { instanceId: instance.id, content: message.content, count: lastError.count });
+          return;
+        }
+      } else {
+        this.lastErrorContent.set(instance.id, { content: message.content, count: 1 });
+      }
+    } else {
+      // Non-error message resets the repeated error tracker
+      this.lastErrorContent.delete(instance.id);
+    }
+
     const isStreaming = message.metadata && 'streaming' in message.metadata && message.metadata['streaming'] === true;
 
     if (isStreaming) {
@@ -733,6 +837,24 @@ export class InstanceCommunicationManager extends EventEmitter {
   // ============================================
   // Context Overflow Failsafe
   // ============================================
+
+  /**
+   * Check if a message content indicates a context overflow / prompt-too-long error
+   */
+  private isContextOverflowMessage(content: string): boolean {
+    if (!content) return false;
+    const lower = content.toLowerCase();
+    return (
+      lower.includes('prompt is too long') ||
+      lower.includes('context window limit') ||
+      lower.includes('context length exceeded') ||
+      lower.includes('context_length_exceeded') ||
+      lower.includes('max_tokens_exceeded') ||
+      lower.includes('maximum context') ||
+      lower.includes('reached its context window') ||
+      lower.includes('token limit')
+    );
+  }
 
   /**
    * Check if context usage has crossed the warning threshold and send delegation guidance

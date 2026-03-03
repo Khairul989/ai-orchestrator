@@ -6,6 +6,7 @@
 import { ChildProcess } from 'child_process';
 import {
   BaseCliAdapter,
+  AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
   CliStatus,
@@ -122,6 +123,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       codeExecution: true,
       contextWindow: this.lastKnownContextWindow,
       outputFormats: ['ndjson', 'text', 'json']
+    };
+  }
+
+  override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
+    return {
+      supportsResume: true,
+      supportsForkSession: true,
+      supportsNativeCompaction: true,
+      supportsPermissionPrompts: true,
     };
   }
 

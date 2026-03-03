@@ -107,7 +107,7 @@ export class InstanceListStore {
     message: string,
     files?: File[],
     workingDirectory?: string,
-    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto',
+    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
     model?: string
   ): Promise<void> {
     console.log('InstanceListStore: createInstanceWithMessage called with:', {

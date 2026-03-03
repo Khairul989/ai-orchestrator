@@ -38,7 +38,7 @@ export class CodexCliProvider extends BaseProvider {
       streaming: true,
       multiTurn: true,
       vision: false, // Codex CLI doesn't support images
-      fileAttachments: true,
+      fileAttachments: false, // Inline/base64 attachment mapping is not supported in orchestrator mode
       functionCalling: true,
       builtInCodeTools: true,
     };

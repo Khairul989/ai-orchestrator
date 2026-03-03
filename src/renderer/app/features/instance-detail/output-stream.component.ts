@@ -24,23 +24,27 @@ import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService } from '../../core/services/ipc';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
 import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
+import { ToolGroupComponent } from '../../shared/components/tool-group/tool-group.component';
 
 /**
- * Represents a grouped display item - either a single message or a group of thinking messages
+ * Represents a grouped display item - either a single message, a group of thinking messages,
+ * or a group of consecutive tool use/result messages.
  */
 interface DisplayItem {
-  type: 'message' | 'thought-group';
+  type: 'message' | 'thought-group' | 'tool-group';
   message?: OutputMessage;
   thoughts?: string[];  // Legacy support
   thinking?: ThinkingContent[]; // Structured thinking content
   response?: OutputMessage;
   timestamp?: number;
+  toolMessages?: OutputMessage[]; // For tool-group: consecutive tool_use/tool_result messages
+  repeatCount?: number; // For collapsed consecutive identical messages
 }
 
 @Component({
   selector: 'app-output-stream',
   standalone: true,
-  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent],
+  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent, ToolGroupComponent],
   template: `
     <div class="output-stream" #container>
       @for (item of displayItems(); track $index) {
@@ -122,6 +126,9 @@ interface DisplayItem {
             }
             </div>
           }
+        } @else if (item.type === 'tool-group' && item.toolMessages) {
+          <!-- Grouped tool calls in collapsible accordion -->
+          <app-tool-group [toolMessages]="item.toolMessages" />
         } @else if (item.message) {
           <!-- Regular message -->
           @if (isCompactionBoundary(item.message)) {
@@ -136,6 +143,9 @@ interface DisplayItem {
                 <span class="message-type">{{
                   formatType(item.message.type)
                 }}</span>
+                @if (item.repeatCount && item.repeatCount > 1) {
+                  <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
+                }
                 <span class="message-time">
                   {{ item.message.timestamp | date: 'HH:mm:ss' }}
                 </span>
@@ -381,6 +391,16 @@ interface DisplayItem {
         background: var(--bg-primary);
         border: 1px solid var(--border-color);
         font-size: 12px;
+      }
+
+      .repeat-badge {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--error-color, #ef4444);
+        background: var(--error-bg, rgba(239, 68, 68, 0.1));
+        padding: 1px 6px;
+        border-radius: 10px;
+        line-height: 1.2;
       }
 
       .message-header {
@@ -648,7 +668,51 @@ export class OutputStreamComponent {
       }
     }
 
-    return items;
+    // Second pass: group consecutive tool_use/tool_result items into tool-groups
+    const grouped: DisplayItem[] = [];
+    let toolBuffer: OutputMessage[] = [];
+
+    const flushToolBuffer = () => {
+      if (toolBuffer.length > 0) {
+        grouped.push({
+          type: 'tool-group',
+          toolMessages: [...toolBuffer],
+          timestamp: toolBuffer[0].timestamp
+        });
+        toolBuffer = [];
+      }
+    };
+
+    for (const item of items) {
+      if (item.type === 'message' && item.message &&
+          (item.message.type === 'tool_use' || item.message.type === 'tool_result')) {
+        toolBuffer.push(item.message);
+      } else {
+        flushToolBuffer();
+        grouped.push(item);
+      }
+    }
+    flushToolBuffer();
+
+    // Third pass: collapse consecutive identical messages (e.g., repeated errors)
+    const deduped: DisplayItem[] = [];
+    for (const item of grouped) {
+      const prev = deduped[deduped.length - 1];
+      if (
+        prev &&
+        item.type === 'message' && prev.type === 'message' &&
+        item.message && prev.message &&
+        item.message.type === prev.message.type &&
+        item.message.content === prev.message.content
+      ) {
+        // Same type and content — increment count on the previous item
+        prev.repeatCount = (prev.repeatCount ?? 1) + 1;
+      } else {
+        deduped.push(item);
+      }
+    }
+
+    return deduped;
   });
 
   constructor() {
@@ -851,12 +915,14 @@ export class OutputStreamComponent {
 
     const prev = meta['previousUsage'] as { percentage?: number } | undefined;
     const next = meta['newUsage'] as { percentage?: number } | undefined;
+    const method = meta['method'] as 'native' | 'restart-with-summary' | undefined;
+    const methodLabel = method ? `[${method}]` : '';
 
     if (prev?.percentage !== undefined && next?.percentage !== undefined) {
-      return `Context compacted (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;
+      return `Context compacted ${methodLabel} (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`.trim();
     }
 
-    return 'Context compacted';
+    return `Context compacted ${methodLabel}`.trim();
   }
 
   /**

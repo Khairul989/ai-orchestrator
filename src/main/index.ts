@@ -9,7 +9,7 @@ import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
 import { InstanceManager } from './instance/instance-manager';
 import { getHookManager } from './hooks/hook-manager';
-import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker } from './orchestration/default-invokers';
+import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker, registerDefaultWorkflowInvoker } from './orchestration/default-invokers';
 import { getOrchestratorPluginManager } from './plugins/plugin-manager';
 import { getObservationIngestor, getObserverAgent, getReflectorAgent } from './observation';
 import { initializePathValidator } from './security/path-validator';
@@ -54,6 +54,7 @@ class AIOrchestratorApp {
         { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(this.instanceManager) },
         { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(this.instanceManager) },
         { name: 'Debate invokers', fn: () => registerDefaultDebateInvoker(this.instanceManager) },
+        { name: 'Workflow invokers', fn: () => registerDefaultWorkflowInvoker(this.instanceManager) },
         { name: 'Plugin manager', fn: () => getOrchestratorPluginManager().initialize(this.instanceManager) },
         { name: 'Observation ingestor', fn: () => getObservationIngestor().initialize(this.instanceManager) },
         { name: 'Observer agent', fn: () => { getObserverAgent(); } },
@@ -86,6 +87,14 @@ class AIOrchestratorApp {
     logger.info('AI Orchestrator initialized');
   }
 
+  /**
+   * Codex/Gemini adapters are currently exec-per-message (stateless).
+   * Context threshold auto-guards are designed for stateful sessions.
+   */
+  private isStatelessExecProvider(provider: string | undefined): boolean {
+    return provider === 'codex' || provider === 'gemini';
+  }
+
   private setupInstanceEventForwarding(): void {
     // Forward instance events to renderer
     this.instanceManager.on('instance:created', (instance) => {
@@ -115,6 +124,11 @@ class AIOrchestratorApp {
         const coordinator = getCompactionCoordinator();
         for (const update of data.updates) {
           if (update.contextUsage) {
+            const instance = this.instanceManager.getInstance(update.instanceId);
+            if (this.isStatelessExecProvider(instance?.provider)) {
+              continue;
+            }
+
             coordinator.onContextUpdate(update.instanceId, update.contextUsage);
 
             // Evaluate context window guard for low-context warnings
@@ -187,7 +201,7 @@ class AIOrchestratorApp {
   private setupCompactionCoordinator(): void {
     const coordinator = getCompactionCoordinator();
 
-    // Configure native compaction strategy: send /compact to Claude CLI
+    // Configure native compaction strategy: send /compact for providers that support it
     coordinator.configure({
       nativeCompact: async (instanceId: string) => {
         try {
@@ -199,9 +213,9 @@ class AIOrchestratorApp {
           return false;
         }
       },
-      getInstanceProvider: (instanceId: string) => {
-        const instance = this.instanceManager.getInstance(instanceId);
-        return instance?.provider;
+      supportsNativeCompaction: (instanceId: string) => {
+        const capabilities = this.instanceManager.getAdapterRuntimeCapabilities(instanceId);
+        return capabilities?.supportsNativeCompaction ?? false;
       },
       restartCompact: async (instanceId: string) => {
         // Use the singleton ContextCompactor with clear-before-use to avoid
@@ -235,14 +249,58 @@ class AIOrchestratorApp {
           const latestSummary = summaries[summaries.length - 1];
           const summaryText = latestSummary?.content || 'Previous conversation context was compacted.';
 
+          const latestUserMessage = [...instance.outputBuffer]
+            .reverse()
+            .find(msg => msg.type === 'user');
+          const currentObjective = latestUserMessage?.content || 'Continue from the previous task.';
+
+          const unresolvedItems = instance.outputBuffer
+            .slice(-30)
+            .flatMap(msg => {
+              const matches = msg.content.match(/(?:^|\n)\s*(?:- \[ \]|todo[:\-]|next[:\-]|follow-up[:\-])\s*(.+)/gi) || [];
+              return matches.map(m =>
+                m.replace(/(?:^|\n)\s*(?:- \[ \]|todo[:\-]|next[:\-]|follow-up[:\-])\s*/i, '').trim()
+              );
+            })
+            .filter(Boolean)
+            .slice(0, 5);
+
+          const recentTurns = instance.outputBuffer
+            .filter(msg => msg.type === 'user' || msg.type === 'assistant')
+            .slice(-8)
+            .map(msg => {
+              const role = msg.type === 'user' ? 'User' : 'Assistant';
+              const content = msg.content.length > 400
+                ? `${msg.content.slice(0, 400)}...[truncated]`
+                : msg.content;
+              return `- ${role}: ${content}`;
+            });
+
+          const continuityPrompt = [
+            '[Context Compaction Continuity Package]',
+            'Compaction method: restart-with-summary',
+            '',
+            'Objective:',
+            currentObjective,
+            '',
+            'Unresolved items:',
+            unresolvedItems.length > 0 ? unresolvedItems.map(item => `- ${item}`).join('\n') : '- None captured.',
+            '',
+            'Compacted summary:',
+            summaryText,
+            '',
+            'Recent turns:',
+            recentTurns.length > 0 ? recentTurns.join('\n') : '- No recent turns available.',
+            '',
+            'Continue from this state without redoing completed work.',
+            '[End Continuity Package]',
+          ].join('\n');
+
           // Restart instance with summary as initial prompt
           await this.instanceManager.restartInstance(instanceId);
 
-          // Send the summary as the first message to re-seed context
-          await this.instanceManager.sendInput(
-            instanceId,
-            `[Context Summary from previous conversation]\n\n${summaryText}\n\nPlease continue from where we left off.`
-          );
+          // Send structured continuity package as the first message to re-seed context
+          await this.instanceManager.sendInput(instanceId, continuityPrompt);
 
           console.log(
             `[CompactionCoordinator] restart-with-summary completed for ${instanceId}`,

@@ -31,6 +31,7 @@ export interface UnifiedSpawnOptions {
   allowedTools?: string[];
   disallowedTools?: string[];
   resume?: boolean;  // Resume an existing session (requires sessionId)
+  forkSession?: boolean; // Fork a resumed session into a new session ID (Claude CLI)
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
 }
 
@@ -46,6 +47,8 @@ function mapSettingsToDetectionType(settingsType: SettingsCliType): CliType | 'a
   switch (settingsType) {
     case 'claude':
       return 'claude';
+    case 'codex':
+      return 'codex';
     case 'openai':
       return 'codex';
     case 'gemini':
@@ -129,6 +132,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     allowedTools: options.allowedTools,
     disallowedTools: options.disallowedTools,
     resume: options.resume,
+    forkSession: options.forkSession,
     mcpConfig: options.mcpConfig,
   };
   return new ClaudeCliAdapter(claudeOptions);

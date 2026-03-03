@@ -1,9 +1,9 @@
 /**
- * CLAUDE.md Config Loader
+ * Instruction Markdown Config Loader (legacy class name preserved for compatibility)
  *
- * Load and parse CLAUDE.md configuration files:
- * - Project-level: ./CLAUDE.md
- * - User-level: ~/.claude/CLAUDE.md
+ * Load and parse instruction configuration files from:
+ * - User-level: ~/.orchestrator/INSTRUCTIONS.md (preferred), ~/.claude/CLAUDE.md (legacy)
+ * - Project-level: ./.orchestrator/INSTRUCTIONS.md (preferred), ./.claude/CLAUDE.md (legacy), ./CLAUDE.md (legacy)
  * - Custom paths from settings
  *
  * Supports:
@@ -197,35 +197,52 @@ export class ClaudeMdLoader extends EventEmitter {
     // User-level config (lowest priority)
     const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
     if (homeDir) {
-      const userConfigPath = path.join(homeDir, '.claude', 'CLAUDE.md');
-      const userResult = await this.loadConfigFile(userConfigPath, 'user', 1);
-      sources.push(userResult.source);
-      if (userResult.config) {
-        configs.push({ config: userResult.config, priority: 1 });
+      const userInstructionPath = path.join(homeDir, '.orchestrator', 'INSTRUCTIONS.md');
+      const userInstructionResult = await this.loadConfigFile(userInstructionPath, 'user', 1);
+      sources.push(userInstructionResult.source);
+      if (userInstructionResult.config) {
+        configs.push({ config: userInstructionResult.config, priority: 1 });
       }
-      if (userResult.error) {
-        errors.push(userResult.error);
+      if (userInstructionResult.error) {
+        errors.push(userInstructionResult.error);
+      }
+
+      const userLegacyPath = path.join(homeDir, '.claude', 'CLAUDE.md');
+      const userLegacyResult = await this.loadConfigFile(userLegacyPath, 'user', 2);
+      sources.push(userLegacyResult.source);
+      if (userLegacyResult.config) {
+        configs.push({ config: userLegacyResult.config, priority: 2 });
+      }
+      if (userLegacyResult.error) {
+        errors.push(userLegacyResult.error);
       }
     }
 
     // Project-level config (medium priority)
-    const projectConfigPath = path.join(this.projectRoot, 'CLAUDE.md');
-    const projectResult = await this.loadConfigFile(projectConfigPath, 'project', 2);
-    sources.push(projectResult.source);
-    if (projectResult.config) {
-      configs.push({ config: projectResult.config, priority: 2 });
-    }
-    if (projectResult.error) {
-      errors.push(projectResult.error);
+    const projectCandidates: Array<{ filePath: string; priority: number }> = [
+      { filePath: path.join(this.projectRoot, '.orchestrator', 'INSTRUCTIONS.md'), priority: 3 },
+      { filePath: path.join(this.projectRoot, '.claude', 'CLAUDE.md'), priority: 4 },
+      { filePath: path.join(this.projectRoot, 'CLAUDE.md'), priority: 5 },
+    ];
+
+    for (const candidate of projectCandidates) {
+      const projectResult = await this.loadConfigFile(candidate.filePath, 'project', candidate.priority);
+      sources.push(projectResult.source);
+      if (projectResult.config) {
+        configs.push({ config: projectResult.config, priority: candidate.priority });
+      }
+      if (projectResult.error) {
+        errors.push(projectResult.error);
+      }
     }
 
     // Custom paths (highest priority, in order)
     for (let i = 0; i < this.customPaths.length; i++) {
       const customPath = this.customPaths[i];
-      const customResult = await this.loadConfigFile(customPath, 'custom', 3 + i);
+      const customResult = await this.loadConfigFile(customPath, 'custom', 6 + i);
       sources.push(customResult.source);
       if (customResult.config) {
-        configs.push({ config: customResult.config, priority: 3 + i });
+        configs.push({ config: customResult.config, priority: 6 + i });
       }
       if (customResult.error) {
         errors.push(customResult.error);
@@ -313,7 +330,7 @@ export class ClaudeMdLoader extends EventEmitter {
   }
 
   /**
-   * Parse CLAUDE.md content
+   * Parse instruction markdown content
    */
   private parseContent(content: string): ClaudeConfig {
     const config: ClaudeConfig = {};
