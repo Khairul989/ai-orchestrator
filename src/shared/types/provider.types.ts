@@ -293,6 +293,32 @@ export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
 }
 
 /**
+ * Model tier names that can be used as shorthand in spawn commands.
+ */
+const MODEL_TIERS = new Set(['fast', 'balanced', 'powerful']);
+
+/**
+ * Check if a string is a model tier name rather than a concrete model ID.
+ */
+export function isModelTier(value: string): value is 'fast' | 'balanced' | 'powerful' {
+  return MODEL_TIERS.has(value);
+}
+
+/**
+ * Resolve a model tier name to a concrete model ID for a given provider.
+ * Returns the first matching model for the tier, or undefined if no match.
+ */
+export function resolveModelForTier(
+  tier: 'fast' | 'balanced' | 'powerful',
+  provider: string
+): string | undefined {
+  const models = PROVIDER_MODEL_LIST[provider];
+  if (!models || models.length === 0) return undefined;
+  const match = models.find(m => m.tier === tier);
+  return match?.id;
+}
+
+/**
  * Get short display name for a model ID (for badges).
  */
 export function getModelShortName(modelId: string, provider: string): string {

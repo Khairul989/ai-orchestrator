@@ -39,6 +39,7 @@ interface DisplayItem {
   timestamp?: number;
   toolMessages?: OutputMessage[]; // For tool-group: consecutive tool_use/tool_result messages
   repeatCount?: number; // For collapsed consecutive identical messages
+  showHeader?: boolean; // False when this is a continuation from the same sender
 }
 
 @Component({
@@ -64,7 +65,8 @@ interface DisplayItem {
                 }
               }
               @if (item.response && hasContent(item.response)) {
-              <div class="message message-assistant">
+              <div class="message message-assistant" [class.continuation]="item.showHeader === false">
+                @if (item.showHeader !== false) {
                 <div class="message-header">
                   <span class="message-type">{{
                     getProviderDisplayName(provider())
@@ -108,6 +110,7 @@ interface DisplayItem {
                     }
                   </button>
                 </div>
+                }
                 <div class="message-content">
                   <div
                     class="markdown-content"
@@ -138,7 +141,8 @@ interface DisplayItem {
               <div class="boundary-line"></div>
             </div>
           } @else if (hasContent(item.message)) {
-            <div class="message" [class]="'message-' + item.message.type">
+            <div class="message" [class]="'message-' + item.message.type" [class.continuation]="item.showHeader === false">
+              @if (item.showHeader !== false) {
               <div class="message-header">
                 <span class="message-type">{{
                   formatType(item.message.type)
@@ -187,6 +191,7 @@ interface DisplayItem {
                   </button>
                 }
               </div>
+              }
               <div class="message-content">
                 @if (
                   item.message.type === 'tool_use' ||
@@ -273,6 +278,14 @@ interface DisplayItem {
         padding: var(--spacing-md);
         border-radius: var(--radius-md);
         background: var(--bg-tertiary);
+      }
+
+      /* Continuation messages from the same sender — tighter spacing, no top radius */
+      .message.continuation {
+        margin-top: calc(-1 * var(--spacing-md) + var(--spacing-xs));
+        border-top-left-radius: var(--radius-sm);
+        border-top-right-radius: var(--radius-sm);
+        padding-top: var(--spacing-sm);
       }
 
       .message-user {
@@ -712,6 +725,32 @@ export class OutputStreamComponent {
       }
     }
 
+    // Fourth pass: compute showHeader — hide header on continuation messages from the same sender
+    const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // Re-show header after 2 minute gap
+    for (let i = 0; i < deduped.length; i++) {
+      const item = deduped[i];
+      const prev = i > 0 ? deduped[i - 1] : undefined;
+
+      // Default: show header
+      item.showHeader = true;
+
+      if (!prev) continue;
+
+      // Get sender type for current and previous items
+      const curSender = this.getItemSenderType(item);
+      const prevSender = this.getItemSenderType(prev);
+
+      if (curSender && prevSender && curSender === prevSender) {
+        // Same sender — check time gap
+        const curTime = this.getItemTimestamp(item);
+        const prevTime = this.getItemTimestamp(prev);
+
+        if (curTime && prevTime && (curTime - prevTime) < TIME_GAP_THRESHOLD) {
+          item.showHeader = false;
+        }
+      }
+    }
+
     return deduped;
   });
 
@@ -993,5 +1032,27 @@ export class OutputStreamComponent {
     }
 
     return firstSentence || 'Thought process';
+  }
+
+  /**
+   * Get the sender type for a display item (for grouping consecutive messages).
+   * Returns a string key representing the sender, or null if not applicable.
+   */
+  private getItemSenderType(item: DisplayItem): string | null {
+    if (item.type === 'thought-group') return 'assistant';
+    if (item.type === 'tool-group') return 'tool';
+    if (item.type === 'message' && item.message) return item.message.type;
+    return null;
+  }
+
+  /**
+   * Get the timestamp for a display item.
+   */
+  private getItemTimestamp(item: DisplayItem): number | null {
+    if (item.timestamp) return item.timestamp;
+    if (item.message?.timestamp) return item.message.timestamp;
+    if (item.response?.timestamp) return item.response.timestamp;
+    if (item.toolMessages?.length) return item.toolMessages[0].timestamp;
+    return null;
   }
 }

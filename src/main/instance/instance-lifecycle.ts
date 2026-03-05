@@ -15,7 +15,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
-import { getModelsForProvider, OPENAI_MODELS } from '../../shared/types/provider.types';
+import { getModelsForProvider, OPENAI_MODELS, isModelTier, resolveModelForTier } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
@@ -465,22 +465,37 @@ export class InstanceLifecycleManager extends EventEmitter {
     let resolvedModel = config.modelOverride || resolvedAgent.modelOverride || settingsModel || undefined;
 
     // Validate model against the target provider's supported models.
+    // If the model is a tier name (fast/balanced/powerful), resolve it to a concrete ID.
     // If the model isn't recognized (e.g., a model from another provider), drop it
     // so the provider uses its own default rather than failing with ModelNotFound.
     if (resolvedModel && resolvedCliType !== 'claude') {
-      const providerModels = getModelsForProvider(resolvedCliType);
-      if (providerModels.length > 0) {
-        const isValid = providerModels.some(m => m.id === resolvedModel);
-        if (!isValid) {
-          const fallbackModel =
-            resolvedCliType === 'codex' ? OPENAI_MODELS.GPT53_CODEX : undefined;
-          logger.warn('Model not valid for target provider, using provider default', {
-            model: resolvedModel,
-            provider: resolvedCliType,
-            validModels: providerModels.map(m => m.id),
-            fallbackModel: fallbackModel || 'provider-default',
-          });
-          resolvedModel = fallbackModel;
+      // First: resolve tier names to concrete model IDs
+      if (isModelTier(resolvedModel)) {
+        const tierResolved = resolveModelForTier(resolvedModel, resolvedCliType);
+        logger.info('Resolved model tier to provider-specific model', {
+          tier: resolvedModel,
+          provider: resolvedCliType,
+          resolvedModel: tierResolved || 'provider-default',
+        });
+        resolvedModel = tierResolved;
+      }
+
+      // Then: validate concrete model IDs against the provider's model list
+      if (resolvedModel) {
+        const providerModels = getModelsForProvider(resolvedCliType);
+        if (providerModels.length > 0) {
+          const isValid = providerModels.some(m => m.id === resolvedModel);
+          if (!isValid) {
+            const fallbackModel =
+              resolvedCliType === 'codex' ? OPENAI_MODELS.GPT53_CODEX : undefined;
+            logger.warn('Model not valid for target provider, using provider default', {
+              model: resolvedModel,
+              provider: resolvedCliType,
+              validModels: providerModels.map(m => m.id),
+              fallbackModel: fallbackModel || 'provider-default',
+            });
+            resolvedModel = fallbackModel;
+          }
         }
       }
     }

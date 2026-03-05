@@ -9,11 +9,12 @@ import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
 import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
-import { getModelRouter, type RoutingDecision } from '../routing';
+import { getModelRouter, type RoutingDecision, type ModelRouter } from '../routing';
 import { getUnifiedMemory } from '../memory';
 import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
+import { isModelTier, resolveModelForTier } from '../../shared/types/provider.types';
 import type {
   SpawnChildCommand,
   MessageChildCommand,
@@ -164,7 +165,8 @@ export class InstanceOrchestrationManager {
           const routingDecision = this.routeChildModel(
             command.task,
             command.model,
-            childAgentId
+            childAgentId,
+            command.provider
           );
 
           logger.info('Child task routed', { model: routingDecision.model, complexity: routingDecision.complexity, confidence: routingDecision.confidence, reason: routingDecision.reason });
@@ -449,19 +451,79 @@ export class InstanceOrchestrationManager {
   // ============================================
 
   /**
-   * Route a child task to the optimal model based on complexity
+   * Route a child task to the optimal model based on complexity.
+   *
+   * When a non-Claude provider is targeted, the routing result is automatically
+   * resolved to that provider's equivalent model for the same tier, ensuring
+   * children always get a valid model ID for their provider.
    */
   routeChildModel(
     task: string,
     explicitModel?: string,
-    agentId?: string
+    agentId?: string,
+    provider?: string
   ): RoutingDecision {
     const router = getModelRouter();
+    const decision = this.computeRoutingDecision(router, task, explicitModel, agentId);
 
-    if (explicitModel) {
+    // If the target is a non-Claude provider, resolve the decision's tier
+    // to that provider's concrete model ID. This handles:
+    //   - Explicit tier names (e.g., model: "powerful", provider: "gemini")
+    //   - Auto-routed Claude model IDs that need cross-provider mapping
+    if (provider && provider !== 'auto' && provider !== 'claude') {
+      const resolvedId = resolveModelForTier(decision.tier, provider);
+      if (resolvedId) {
+        logger.info('Resolved model for target provider', {
+          originalModel: decision.model,
+          tier: decision.tier,
+          provider,
+          resolvedModel: resolvedId
+        });
+        return {
+          ...decision,
+          model: resolvedId,
+          reason: `${decision.reason} → resolved to "${resolvedId}" for ${provider}`
+        };
+      }
+      // No model found for this tier+provider — let lifecycle validation handle it
+      logger.warn('No model found for tier in target provider, passing through', {
+        tier: decision.tier,
+        provider,
+        originalModel: decision.model
+      });
+    }
+
+    return decision;
+  }
+
+  /**
+   * Core routing logic — determines complexity tier and model without
+   * considering the target provider. Returns Claude-centric model IDs
+   * that get cross-mapped to other providers by routeChildModel().
+   */
+  private computeRoutingDecision(
+    router: ModelRouter,
+    task: string,
+    explicitModel?: string,
+    agentId?: string
+  ): RoutingDecision {
+    // Explicit model or tier name → pass to router
+    if (explicitModel && !isModelTier(explicitModel)) {
       return router.route(task, explicitModel);
     }
 
+    // Explicit tier name → route with complexity pre-determined
+    if (explicitModel && isModelTier(explicitModel)) {
+      return {
+        model: explicitModel === 'powerful' ? 'opus' : explicitModel === 'fast' ? 'haiku' : 'sonnet',
+        complexity: explicitModel === 'powerful' ? 'complex' : explicitModel === 'fast' ? 'simple' : 'moderate',
+        tier: explicitModel,
+        confidence: 1.0,
+        reason: `Explicit tier "${explicitModel}" requested`
+      };
+    }
+
+    // Agent override
     if (agentId) {
       const agent = getAgentById(agentId);
       if (agent?.modelOverride) {
@@ -475,6 +537,7 @@ export class InstanceOrchestrationManager {
       }
     }
 
+    // Outcome-driven recommendation
     const recommendation = this.getOutcomeRecommendation(task);
     if (
       recommendation &&
@@ -490,7 +553,7 @@ export class InstanceOrchestrationManager {
       };
     }
 
-    // Consult user preference store as fallback
+    // User preference store
     try {
       const preferredModel = getPreferenceStore().get<string>('model.default');
       if (preferredModel) {
@@ -506,7 +569,8 @@ export class InstanceOrchestrationManager {
       // Preference store is optional
     }
 
-    return router.route(task, explicitModel);
+    // Auto-route based on task complexity analysis
+    return router.route(task);
   }
 
   // ============================================

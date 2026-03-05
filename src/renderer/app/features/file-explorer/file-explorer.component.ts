@@ -93,8 +93,8 @@ interface TreeNode extends FileEntry {
                 draggable="true"
                 (dragstart)="onDragStart($event, node)"
                 (click)="onNodeClick(node, $event)"
-                (keydown.enter)="onNodeClick(node, $event)"
-                (keydown.space)="onNodeClick(node, $event)"
+                (keydown.enter)="onNodeClick(node, $any($event))"
+                (keydown.space)="onNodeClick(node, $any($event))"
                 tabindex="0"
                 role="button"
               >
