@@ -163,6 +163,7 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'opus', label: 'Opus (latest)' },
       { value: 'sonnet', label: 'Sonnet (latest)' },
       { value: 'haiku', label: 'Haiku (latest)' },
+      { value: 'gpt-5.4', label: 'GPT-5.4' },
       { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
       { value: 'gpt-4o', label: 'GPT-4o' },
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
@@ -412,6 +413,14 @@ export function mergeConfigs(
 ): ResolvedConfig {
   const settings = { ...defaultSettings };
   const sources: Record<string, ConfigSource> = {};
+  const applySetting = <K extends keyof AppSettings>(
+    key: K,
+    value: AppSettings[K],
+    source: ConfigSource
+  ) => {
+    settings[key] = value;
+    sources[key] = source;
+  };
 
   // Start with defaults
   for (const key of Object.keys(defaultSettings) as (keyof AppSettings)[]) {
@@ -422,8 +431,8 @@ export function mergeConfigs(
   if (userSettings) {
     for (const [key, value] of Object.entries(userSettings)) {
       if (value !== undefined) {
-        (settings as any)[key] = value;
-        sources[key] = 'user';
+        const typedKey = key as keyof AppSettings;
+        applySetting(typedKey, value as AppSettings[typeof typedKey], 'user');
       }
     }
   }
@@ -432,8 +441,8 @@ export function mergeConfigs(
   if (projectSettings) {
     for (const [key, value] of Object.entries(projectSettings)) {
       if (value !== undefined) {
-        (settings as any)[key] = value;
-        sources[key] = 'project';
+        const typedKey = key as keyof AppSettings;
+        applySetting(typedKey, value as AppSettings[typeof typedKey], 'project');
       }
     }
   }

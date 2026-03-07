@@ -150,6 +150,7 @@ export const CLAUDE_MODELS = {
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
+  GPT54: 'gpt-5.4',
   GPT53_CODEX: 'gpt-5.3-codex',
   GPT4O: 'gpt-4o',
   GPT4O_MINI: 'gpt-4o-mini',
@@ -256,8 +257,9 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: CLAUDE_MODELS.HAIKU, name: 'Haiku (latest)', tier: 'fast' },
   ],
   codex: [
+    { id: OPENAI_MODELS.GPT54, name: 'GPT-5.4', tier: 'powerful' },
     { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'powerful' },
-    { id: OPENAI_MODELS.GPT4O, name: 'GPT-4o', tier: 'powerful' },
+    { id: OPENAI_MODELS.GPT4O, name: 'GPT-4o', tier: 'balanced' },
     { id: OPENAI_MODELS.GPT4O_MINI, name: 'GPT-4o Mini', tier: 'fast' },
     { id: OPENAI_MODELS.GPT4_TURBO, name: 'GPT-4 Turbo', tier: 'balanced' },
   ],
@@ -290,6 +292,15 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
  */
 export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
   return PROVIDER_MODEL_LIST[provider] ?? [];
+}
+
+/**
+ * Codex/OpenAI CLI models change frequently. Accept broadly valid OpenAI-style
+ * model ids instead of rejecting them against a stale static allowlist.
+ */
+export function looksLikeCodexModelId(modelId: string): boolean {
+  const normalized = modelId.trim().toLowerCase();
+  return /^(gpt|o[1-9]|codex)([.-][a-z0-9]+)*$/i.test(normalized);
 }
 
 /**

@@ -2,60 +2,111 @@
  * Codex CLI Adapter - Spawns and manages OpenAI Codex CLI processes
  * https://github.com/openai/codex
  *
- * Uses `codex exec` for non-interactive execution with JSONL output.
- * Also provides spawn/sendInput interface for compatibility with InstanceManager.
+ * Uses `codex exec` / `codex exec resume` in stateless job mode while
+ * preserving native Codex thread continuity across messages.
  */
 
 import {
   BaseCliAdapter,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
+  CliAttachment,
   CliCapabilities,
-  CliStatus,
   CliMessage,
   CliResponse,
+  CliStatus,
   CliToolCall,
   CliUsage,
 } from './base-cli-adapter';
-import type { OutputMessage, ContextUsage, InstanceStatus, ThinkingContent } from '../../../shared/types/instance.types';
+import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+import { buildMessageWithFiles, processAttachments, type ProcessedAttachment } from '../file-handler';
+
+type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
+type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+
+interface CodexDiagnostic {
+  category: 'auth' | 'mcp' | 'models' | 'process' | 'sandbox' | 'session' | 'startup' | 'unknown';
+  fatal: boolean;
+  line: string;
+  level: 'error' | 'info' | 'warning';
+}
+
+interface CodexExecutionResult {
+  code: number | null;
+  diagnostics: CodexDiagnostic[];
+  raw: string;
+  response: CliResponse & { metadata: Record<string, unknown>; thinking?: ThinkingBlock[] };
+}
+
+interface CodexExecutionState {
+  diagnostics: CodexDiagnostic[];
+  partialStderr: string;
+  partialStdout: string;
+  rawStderr: string;
+  rawStdout: string;
+  toolCalls: CliToolCall[];
+  threadId?: string;
+  usage?: CliUsage;
+}
+
+interface CodexConversationEntry {
+  content: string;
+  role: 'assistant' | 'user';
+}
 
 /**
  * Codex CLI specific configuration
  */
 export interface CodexCliConfig {
-  /** Model to use (gpt-4, o3, etc.) */
-  model?: string;
   /** Approval mode: suggest, auto-edit, or full-auto */
-  approvalMode?: 'suggest' | 'auto-edit' | 'full-auto';
+  approvalMode?: CodexApprovalMode;
+  /** Additional writable directories */
+  additionalWritableDirs?: string[];
+  /** Run without persisting session files to disk */
+  ephemeral?: boolean;
+  /** Model to use (gpt-5.4, gpt-5.3-codex, etc.) */
+  model?: string;
+  /** Path to a JSON schema file describing the final output */
+  outputSchemaPath?: string;
+  /** Resume the provided session/thread on the next exec */
+  resume?: boolean;
   /** Sandbox mode: read-only, workspace-write, or danger-full-access */
-  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
-  /** Working directory */
-  workingDir?: string;
+  sandboxMode?: CodexSandboxMode;
+  /** Existing Codex session/thread id */
+  sessionId?: string;
+  /** System prompt to inject into each exec request */
+  systemPrompt?: string;
   /** Timeout in milliseconds */
   timeout?: number;
-  /** System prompt */
-  systemPrompt?: string;
+  /** Working directory */
+  workingDir?: string;
 }
 
 /**
  * Events emitted by CodexCliAdapter (for InstanceManager compatibility)
  */
 export interface CodexCliAdapterEvents {
-  'output': (message: OutputMessage) => void;
-  'status': (status: InstanceStatus) => void;
   'context': (usage: ContextUsage) => void;
   'error': (error: Error) => void;
   'exit': (code: number | null, signal: string | null) => void;
+  'output': (message: OutputMessage) => void;
   'spawned': (pid: number) => void;
+  'status': (status: InstanceStatus) => void;
 }
 
 /**
  * Codex CLI Adapter - Implementation for OpenAI Codex CLI
  */
 export class CodexCliAdapter extends BaseCliAdapter {
+  private static readonly MAX_REPLAY_CHARS_PER_ENTRY = 1200;
+  private static readonly MAX_REPLAY_ENTRIES = 16;
+
   private cliConfig: CodexCliConfig;
+  private conversationHistory: CodexConversationEntry[] = [];
+  private isSpawned = false;
+  private shouldResumeNextTurn: boolean;
 
   constructor(config: CodexCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -63,15 +114,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
       args: [],
       cwd: config.workingDir,
       timeout: config.timeout || 300000,
-      sessionPersistence: true,
+      sessionPersistence: !config.ephemeral,
     };
     super(adapterConfig);
 
     this.cliConfig = config;
-    this.sessionId = `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.shouldResumeNextTurn = Boolean(this.supportsNativeResume() && config.resume && config.sessionId);
   }
-
-  // ============ BaseCliAdapter Abstract Implementations ============
 
   getName(): string {
     return 'codex-cli';
@@ -84,16 +134,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
       fileAccess: true,
       shellExecution: true,
       multiTurn: true,
-      vision: false, // Explicitly blocked in orchestrator mode
+      vision: true,
       codeExecution: true,
-      contextWindow: 128000, // GPT-4 context window
+      contextWindow: 400000,
       outputFormats: ['text', 'json'],
     };
   }
 
   override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return {
-      supportsResume: false,
+      supportsResume: this.supportsNativeResume(),
       supportsForkSession: false,
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
@@ -119,7 +169,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             available: true,
             version: versionMatch?.[1] || 'unknown',
             path: 'codex',
-            authenticated: true, // Codex handles its own auth
+            authenticated: true,
           });
         } else {
           resolve({
@@ -147,224 +197,98 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
-    if (message.attachments && message.attachments.length > 0) {
-      throw new Error('Codex adapter does not support attachments in orchestrator mode.');
+    const normalizedMessage = await this.normalizeMessage(message);
+    const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
+    const maxAttempts = 2;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const execution = await this.executePreparedMessage(preparedMessage);
+        const response = execution.response;
+        const content = response.content.trim();
+        const hasMeaningfulOutput = content.length > 0 || (response.toolCalls?.length || 0) > 0;
+        const shouldRetry = attempt < maxAttempts
+          && !hasMeaningfulOutput
+          && !execution.diagnostics.some((diagnostic) => diagnostic.fatal);
+
+        if (!shouldRetry) {
+          this.recordConversationTurn(normalizedMessage, response);
+          this.emit('complete', response);
+          return response;
+        }
+
+        await this.delay(250 * attempt);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt >= maxAttempts) {
+          throw lastError;
+        }
+        await this.delay(250 * attempt);
+      }
     }
 
-    const startTime = Date.now();
-    this.outputBuffer = '';
-
-    return new Promise((resolve, reject) => {
-      const args = this.buildArgs(message);
-      this.process = this.spawnProcess(args);
-
-      // For `codex exec`, the prompt is passed as an argument, not via stdin
-      // Close stdin since we're not using it
-      if (this.process.stdin) {
-        this.process.stdin.end();
-      }
-
-      this.process.stdout?.on('data', (data) => {
-        const chunk = data.toString();
-        this.outputBuffer += chunk;
-
-        // Parse JSONL events and extract content
-        const lines = chunk.split('\n').filter((l: string) => l.trim());
-        for (const line of lines) {
-          try {
-            const event = JSON.parse(line);
-            // Handle Codex exec event types
-            if (event.type === 'item.completed' && event.item?.text) {
-              this.emit('output', event.item.text);
-            } else if (event.type === 'message' && event.content) {
-              this.emit('output', event.content);
-            } else if (event.type === 'agent_message' && event.message?.content) {
-              this.emit('output', event.message.content);
-            }
-          } catch {
-            // Not JSON, may be plain text output - emit if it's not empty
-            if (line.trim() && !line.startsWith('{')) {
-              this.emit('output', line);
-            }
-          }
-        }
-      });
-
-      this.process.stderr?.on('data', (data) => {
-        const errorStr = data.toString();
-        // Surface MCP / startup progress as info output so users see what's happening
-        const lines = errorStr.split('\n').filter((l: string) => l.trim());
-        for (const line of lines) {
-          const trimmed = line.trim();
-          // Hard errors → emit as error
-          if (/\b(fatal|FATAL)\b/.test(trimmed) ||
-              (/\b(error|Error|ERROR)\b/.test(trimmed) && !trimmed.startsWith('mcp:'))) {
-            this.emit('error', trimmed);
-          } else if (trimmed.startsWith('mcp:') || trimmed.includes('starting') || trimmed.includes('ready') || trimmed.includes('failed')) {
-            // MCP loading / startup status → surface as system output
-            this.emit('output', `[codex] ${trimmed}`);
-          }
-        }
-      });
-
-      this.process.on('close', (code) => {
-        const duration = Date.now() - startTime;
-
-        if (code === 0 || this.outputBuffer) {
-          const response = this.parseOutput(this.outputBuffer);
-          response.usage = {
-            ...response.usage,
-            duration,
-          };
-          this.emit('complete', response);
-          resolve(response);
-        } else {
-          reject(new Error(`Codex exited with code ${code}`));
-        }
-        this.process = null;
-      });
-
-      // Timeout handling
-      const timeout = setTimeout(() => {
-        if (this.process) {
-          this.process.kill('SIGTERM');
-          reject(new Error('Codex CLI timeout'));
-        }
-      }, this.config.timeout);
-
-      this.process.on('close', () => clearTimeout(timeout));
-    });
+    throw lastError || new Error('Codex execution failed without a diagnostic error.');
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
-    const args = this.buildArgs(message);
-    this.process = this.spawnProcess(args);
-
-    // For `codex exec`, the prompt is passed as an argument, not via stdin
-    if (this.process.stdin) {
-      this.process.stdin.end();
-    }
-
-    const stdout = this.process.stdout;
-    if (!stdout) return;
-
-    for await (const chunk of stdout) {
-      const chunkStr = chunk.toString();
-      // Parse JSONL and extract content
-      const lines = chunkStr.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-          // Handle Codex exec event types
-          if (event.type === 'item.completed' && event.item?.text) {
-            yield event.item.text;
-          } else if (event.type === 'message' && event.content) {
-            yield event.content;
-          } else if (event.type === 'agent_message' && event.message?.content) {
-            yield event.message.content;
-          }
-        } catch {
-          // Not JSON, yield if it looks like content
-          if (line.trim() && !line.startsWith('{')) {
-            yield line;
-          }
-        }
-      }
+    const response = await this.sendMessage(message);
+    if (response.content) {
+      yield response.content;
     }
   }
 
   parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
-    const id = this.generateResponseId();
-
-    // Try to parse JSONL output first
-    let content = this.extractContentFromJsonl(raw);
-    const toolCalls = this.extractToolCalls(raw);
-    const usage = this.extractUsage(raw);
-
-    // If no JSONL content, use cleaned raw
-    if (!content) {
-      content = this.cleanContent(raw);
-    }
-
-    // Extract thinking content from the response
-    const extracted = extractThinkingContent(content);
-
-    return {
-      id,
-      content: extracted.response, // Use cleaned response without thinking
-      role: 'assistant',
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      usage,
-      raw,
-      // Include thinking blocks if found
-      thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
-    };
-  }
-
-  /**
-   * Extract content from JSONL output format
-   * Codex exec outputs events in format:
-   * - {"type":"item.completed","item":{"id":"...","type":"agent_message","text":"..."}}
-   * - {"type":"turn.completed","usage":{...}}
-   */
-  private extractContentFromJsonl(raw: string): string {
-    const contentParts: string[] = [];
-    const lines = raw.split('\n').filter(l => l.trim());
-
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line);
-        // Handle Codex exec event types
-        if (event.type === 'item.completed' && event.item?.text) {
-          contentParts.push(event.item.text);
-        } else if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item?.message?.content) {
-          contentParts.push(event.item.message.content);
-        } else if (event.type === 'message' && event.content) {
-          contentParts.push(event.content);
-        } else if (event.type === 'agent_message' && event.message?.content) {
-          contentParts.push(event.message.content);
-        } else if (event.type === 'text' && event.text) {
-          contentParts.push(event.text);
-        } else if (event.type === 'completion' && event.content) {
-          contentParts.push(event.content);
-        }
-      } catch {
-        /* intentionally ignored: non-JSON lines are skipped during output parsing */
-      }
-    }
-
-    return contentParts.join('\n');
+    const parsed = this.parseTranscript(raw, []);
+    return parsed.response;
   }
 
   protected buildArgs(message: CliMessage): string[] {
-    // Use `codex exec` for non-interactive execution
-    const args: string[] = ['exec'];
+    const useResume = this.shouldUseResumeCommand();
+    const args: string[] = useResume ? ['exec', 'resume'] : ['exec'];
 
-    // Model selection
     if (this.cliConfig.model) {
       args.push('--model', this.cliConfig.model);
     }
 
-    // Enable JSONL output for easier parsing
     args.push('--json');
 
-    // Approval mode / sandbox settings
-    if (this.cliConfig.approvalMode === 'full-auto') {
-      // --full-auto is a convenience flag that sets sandbox to workspace-write
+    if (this.cliConfig.ephemeral) {
+      args.push('--ephemeral');
+    }
+
+    if (!useResume) {
+      if (this.cliConfig.approvalMode === 'full-auto') {
+        args.push('--full-auto');
+      } else if (this.cliConfig.sandboxMode) {
+        args.push('--sandbox', this.cliConfig.sandboxMode);
+      }
+    } else if (this.cliConfig.approvalMode === 'full-auto') {
       args.push('--full-auto');
-    } else if (this.cliConfig.sandboxMode) {
-      args.push('--sandbox', this.cliConfig.sandboxMode);
     }
 
-    // Working directory
-    if (this.cliConfig.workingDir) {
-      args.push('--cd', this.cliConfig.workingDir);
+    if (!useResume) {
+      for (const dir of this.cliConfig.additionalWritableDirs || []) {
+        args.push('--add-dir', dir);
+      }
     }
 
-    // Skip git repo check in case we're running outside a repo
+    if (!useResume && this.cliConfig.outputSchemaPath) {
+      args.push('--output-schema', this.cliConfig.outputSchemaPath);
+    }
+
     args.push('--skip-git-repo-check');
 
-    // Add the prompt as a positional argument (required for exec)
+    for (const attachment of message.attachments || []) {
+      if (attachment.type === 'image' && attachment.path) {
+        args.push('-i', attachment.path);
+      }
+    }
+
+    if (useResume && this.sessionId) {
+      args.push(this.sessionId);
+    }
+
     if (message.content) {
       args.push(message.content);
     }
@@ -372,178 +296,102 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return args;
   }
 
-  // ============ Private Helper Methods ============
-
-  private extractToolCalls(raw: string): CliToolCall[] {
-    const toolCalls: CliToolCall[] = [];
-
-    // Pattern for Codex tool execution blocks
-    // Codex uses formats like [TOOL: name]...[/TOOL]
-    const toolPattern = /\[TOOL:\s*(\w+)\]([\s\S]*?)\[\/TOOL\]/g;
-    let match;
-
-    while ((match = toolPattern.exec(raw)) !== null) {
-      toolCalls.push({
-        id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: match[1],
-        arguments: { raw: match[2].trim() },
-      });
-    }
-
-    // Also check for code block patterns that may indicate tool use
-    const codePattern = /```(\w+)\n([\s\S]*?)```/g;
-    while ((match = codePattern.exec(raw)) !== null) {
-      const lang = match[1].toLowerCase();
-      if (['bash', 'shell', 'sh'].includes(lang)) {
-        toolCalls.push({
-          id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          name: 'execute',
-          arguments: { command: match[2].trim() },
-        });
-      }
-    }
-
-    return toolCalls;
-  }
-
-  private cleanContent(raw: string): string {
-    // Use the shared extractor for consistent handling of thinking content
-    const { response } = extractThinkingContent(raw);
-
-    // Also remove tool blocks and status lines
-    return response
-      .replace(/\[TOOL:\s*\w+\][\s\S]*?\[\/TOOL\]/g, '')
-      .replace(/\[Codex\].*$/gm, '') // Remove status lines
-      .trim();
-  }
-
-  private extractUsage(raw: string): CliUsage {
-    // Try to extract usage from JSONL turn.completed event
-    const lines = raw.split('\n').filter(l => l.trim());
-
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line);
-        if (event.type === 'turn.completed' && event.usage) {
-          return {
-            inputTokens: event.usage.input_tokens || 0,
-            outputTokens: event.usage.output_tokens || 0,
-            totalTokens: (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0),
-          };
-        }
-      } catch {
-        /* intentionally ignored: non-JSON lines are skipped during token count parsing */
-      }
-    }
-
-    // Fallback: try to extract from raw text
-    const tokensMatch = raw.match(/tokens:\s*(\d+)/i);
-    const tokens = tokensMatch ? parseInt(tokensMatch[1]) : this.estimateTokens(raw);
-
-    return {
-      outputTokens: tokens,
-      totalTokens: tokens,
-    };
-  }
-
-  // ============ InstanceManager Compatibility API ============
-  // These methods provide the spawn/sendInput pattern expected by InstanceManager
-  // Unlike Claude CLI which maintains a persistent process, Codex runs exec per message
-
-  private isSpawned: boolean = false;
-
-  /**
-   * "Spawn" the CLI adapter - marks it as ready to receive messages.
-   * Unlike Claude CLI, Codex doesn't maintain a persistent process.
-   * Each sendInput() will exec a new command.
-   */
   async spawn(): Promise<number> {
     if (this.isSpawned) {
       throw new Error('Adapter already spawned');
     }
 
+    const status = await this.checkStatus();
+    if (!status.available) {
+      throw new Error(status.error || 'Codex CLI is unavailable');
+    }
+
     this.isSpawned = true;
-    // Generate a fake PID to maintain API compatibility
     const fakePid = Math.floor(Math.random() * 100000) + 10000;
     this.emit('spawned', fakePid);
     this.emit('status', 'idle' as InstanceStatus);
-
     return fakePid;
   }
 
-  /**
-   * Send a message to Codex via exec command.
-   * Each call spawns a new process.
-   */
-  async sendInput(message: string, attachments?: any[]): Promise<void> {
+  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }
 
-    if (attachments && attachments.length > 0) {
-      throw new Error('Codex adapter does not support attachments in orchestrator mode.');
-    }
-
     this.emit('status', 'busy' as InstanceStatus);
-
-    // Emit a startup notice so the UI shows progress instead of a blank spinner
-    const startupNotice: OutputMessage = {
+    this.emit('output', {
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
       content: '[codex] Starting Codex CLI... (this may take a moment if MCP servers are loading)',
-    };
-    this.emit('output', startupNotice);
+    });
 
     try {
       const cliMessage: CliMessage = {
         role: 'user',
         content: message,
+        attachments: attachments?.map((attachment) => ({
+          type: attachment.type.startsWith('image/') ? 'image' : 'file',
+          content: attachment.data,
+          mimeType: attachment.type,
+          name: attachment.name,
+        })),
       };
 
-      // Execute the command
-      const response = await this.sendMessage(cliMessage) as CliResponse & { thinking?: ThinkingBlock[] };
+      const response = await this.sendMessage(cliMessage) as CliResponse & {
+        metadata?: {
+          diagnostics?: CodexDiagnostic[];
+        };
+        thinking?: ThinkingBlock[];
+      };
 
-      // Emit output as OutputMessage for InstanceManager
-      if (response.content) {
-        // Convert ThinkingBlock to ThinkingContent for OutputMessage
-        const thinkingContent: ThinkingContent[] | undefined = response.thinking?.map(block => ({
+      this.emitDiagnostics(response.metadata?.diagnostics);
+
+      if (response.toolCalls) {
+        for (const tool of response.toolCalls) {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: tool.name === 'command_execution' && typeof tool.arguments['command'] === 'string'
+              ? `Running command: ${tool.arguments['command'] as string}`
+              : `Using tool: ${tool.name}`,
+            metadata: { ...tool } as Record<string, unknown>,
+          });
+
+          if (typeof tool.result === 'string' && tool.result.trim()) {
+            this.emit('output', {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'tool_result',
+              content: tool.result,
+              metadata: { ...tool, is_error: false } as Record<string, unknown>,
+            });
+          }
+        }
+      }
+
+      if (response.content || (response.thinking && response.thinking.length > 0)) {
+        const thinkingContent: ThinkingContent[] | undefined = response.thinking?.map((block) => ({
           id: block.id,
           content: block.content,
           format: block.format,
           timestamp: block.timestamp || Date.now(),
         }));
 
-        const outputMessage: OutputMessage = {
+        this.emit('output', {
           id: generateId(),
           timestamp: Date.now(),
           type: 'assistant',
           content: response.content,
           thinking: thinkingContent,
           thinkingExtracted: true,
-        };
-        this.emit('output', outputMessage);
+          metadata: response.metadata,
+        });
       }
 
-      // Emit tool uses if any
-      if (response.toolCalls) {
-        for (const tool of response.toolCalls) {
-          const toolMessage: OutputMessage = {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: `Using tool: ${tool.name}`,
-            metadata: { ...tool } as Record<string, unknown>,
-          };
-          this.emit('output', toolMessage);
-        }
-      }
-
-      // Update context usage using current-turn occupancy, not cumulative lifetime usage.
-      // In exec-per-message mode, summing turn usage can falsely hit compaction thresholds.
       if (response.usage) {
-        const usedTokens = response.usage.inputTokens !== undefined ||
-          response.usage.outputTokens !== undefined
+        const usedTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
           ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
           : (response.usage.totalTokens || 0);
         const contextWindow = this.getCapabilities().contextWindow;
@@ -557,23 +405,599 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
-      const errorMessage: OutputMessage = {
+      this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
         type: 'error',
-        content: error instanceof Error ? error.message : String(error),
-      };
-      this.emit('output', errorMessage);
+        content: `Codex error: ${error instanceof Error ? error.message : String(error)}`,
+      });
       this.emit('status', 'error' as InstanceStatus);
-      this.emit('error', error instanceof Error ? error : new Error(String(error)));
+      throw error;
     }
   }
 
-  /**
-   * Override terminate to clean up spawned state
-   */
-  override async terminate(graceful: boolean = true): Promise<void> {
-    await super.terminate(graceful);
+  override async terminate(graceful = true): Promise<void> {
     this.isSpawned = false;
+    await super.terminate(graceful);
+  }
+
+  private classifyDiagnostic(line: string): CodexDiagnostic {
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+    const hasErrorLevel = /\berror\b/i.test(trimmed);
+    const hasWarnLevel = /\bwarn\b/i.test(trimmed);
+
+    if (
+      lower.includes('failed to refresh available models')
+      || lower.includes('timeout waiting for child process to exit')
+    ) {
+      return { category: 'models', fatal: false, line: trimmed, level: 'warning' };
+    }
+
+    if (
+      lower.includes('failed to terminate mcp process group')
+      || lower.includes('failed to kill mcp process group')
+    ) {
+      return { category: 'mcp', fatal: false, line: trimmed, level: 'warning' };
+    }
+
+    if (lower.includes('failed to delete shell snapshot')) {
+      return { category: 'startup', fatal: false, line: trimmed, level: 'warning' };
+    }
+
+    if (
+      lower.includes('unauthorized')
+      || lower.includes('authentication')
+      || lower.includes('forbidden')
+      || lower.includes('login required')
+    ) {
+      return { category: 'auth', fatal: true, line: trimmed, level: 'error' };
+    }
+
+    if (
+      lower.includes('unknown model')
+      || lower.includes('model not found')
+      || lower.includes('invalid model')
+    ) {
+      return { category: 'models', fatal: true, line: trimmed, level: 'error' };
+    }
+
+    if (
+      lower.includes('session not found')
+      || lower.includes('thread not found')
+      || lower.includes('no matching session')
+    ) {
+      return { category: 'session', fatal: true, line: trimmed, level: 'error' };
+    }
+
+    if (
+      lower.includes('permission denied')
+      || lower.includes('sandbox')
+      || lower.includes('dangerously-bypass-approvals-and-sandbox')
+    ) {
+      return { category: 'sandbox', fatal: hasErrorLevel, line: trimmed, level: hasErrorLevel ? 'error' : 'warning' };
+    }
+
+    if (hasWarnLevel) {
+      return { category: 'unknown', fatal: false, line: trimmed, level: 'warning' };
+    }
+
+    if (hasErrorLevel) {
+      return { category: 'process', fatal: false, line: trimmed, level: 'warning' };
+    }
+
+    return { category: 'unknown', fatal: false, line: trimmed, level: 'info' };
+  }
+
+  private cleanContent(raw: string): string {
+    const nonJsonContent = raw
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim() && !line.trim().startsWith('{'))
+      .join('\n');
+    const { response } = extractThinkingContent(nonJsonContent);
+    return response
+      .replace(/\[TOOL:\s*\w+\][\s\S]*?\[\/TOOL\]/g, '')
+      .replace(/\[codex\].*$/gim, '')
+      .trim();
+  }
+
+  private async executePreparedMessage(message: CliMessage): Promise<CodexExecutionResult> {
+    return new Promise((resolve, reject) => {
+      const args = this.buildArgs(message);
+      const process = this.spawnProcess(args);
+      const state: CodexExecutionState = {
+        diagnostics: [],
+        partialStderr: '',
+        partialStdout: '',
+        rawStderr: '',
+        rawStdout: '',
+        toolCalls: [],
+      };
+
+      this.process = process;
+
+      if (process.stdin) {
+        process.stdin.end();
+      }
+
+      process.stdout?.on('data', (data) => {
+        const chunk = data.toString();
+        state.rawStdout += chunk;
+        state.partialStdout = this.consumeLines(chunk, state.partialStdout, (line) => {
+          this.processStdoutLine(line, state);
+        });
+      });
+
+      process.stderr?.on('data', (data) => {
+        const chunk = data.toString();
+        state.rawStderr += chunk;
+        state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
+          const diagnostic = this.classifyDiagnostic(line);
+          state.diagnostics.push(diagnostic);
+        });
+      });
+
+      const timeout = setTimeout(() => {
+        if (this.process) {
+          this.process.kill('SIGTERM');
+          this.process = null;
+          reject(new Error('Codex CLI timeout'));
+        }
+      }, this.config.timeout);
+
+      process.on('error', (error) => {
+        clearTimeout(timeout);
+        this.process = null;
+        reject(error);
+      });
+
+      process.on('close', (code, signal) => {
+        clearTimeout(timeout);
+
+        if (state.partialStdout.trim()) {
+          this.processStdoutLine(state.partialStdout, state);
+        }
+        if (state.partialStderr.trim()) {
+          state.diagnostics.push(this.classifyDiagnostic(state.partialStderr));
+        }
+
+        const parsed = this.parseTranscript(state.rawStdout, state.diagnostics);
+        const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
+
+        if (parsed.threadId && this.supportsNativeResume()) {
+          this.sessionId = parsed.threadId;
+          this.shouldResumeNextTurn = true;
+        }
+
+        this.process = null;
+        this.emit('exit', code, signal);
+
+        if (code !== 0 && !parsed.hasMeaningfulOutput) {
+          const diagnosticSummary = state.diagnostics.map((diagnostic) => diagnostic.line).join('\n');
+          reject(new Error(diagnosticSummary || `Codex exited with code ${code}`));
+          return;
+        }
+
+        resolve({
+          code,
+          diagnostics: state.diagnostics,
+          raw,
+          response: {
+            ...parsed.response,
+            metadata: {
+              ...parsed.response.metadata,
+              diagnostics: state.diagnostics,
+            },
+            raw,
+          },
+        });
+      });
+    });
+  }
+
+  private async prepareMessage(message: CliMessage): Promise<CliMessage> {
+    const normalizedMessage = await this.normalizeMessage(message);
+    return this.prepareMessageForExecution(normalizedMessage);
+  }
+
+  private async normalizeMessage(message: CliMessage): Promise<CliMessage> {
+    let content = message.content;
+    let preparedAttachments: CliAttachment[] | undefined;
+
+    if (message.attachments && message.attachments.length > 0) {
+      const processedAttachments = await this.prepareAttachments(message.attachments);
+      const imageAttachments = processedAttachments.filter((attachment) => attachment.isImage);
+      const fileAttachments = processedAttachments.filter((attachment) => !attachment.isImage);
+
+      if (fileAttachments.length > 0) {
+        content = buildMessageWithFiles(content, fileAttachments);
+      }
+
+      if (imageAttachments.length > 0) {
+        preparedAttachments = imageAttachments.map((attachment) => ({
+          type: 'image',
+          path: attachment.filePath,
+          mimeType: attachment.mimeType,
+          name: attachment.originalName,
+        }));
+      }
+    }
+
+    return {
+      ...message,
+      content,
+      attachments: preparedAttachments,
+    };
+  }
+
+  private prepareMessageForExecution(message: CliMessage): CliMessage {
+    let content = message.content;
+
+    if (!this.shouldUseResumeCommand() && this.conversationHistory.length > 0) {
+      content = this.buildReplayPrompt(content);
+    }
+
+    if (this.cliConfig.systemPrompt?.trim()) {
+      content = [
+        '[SYSTEM INSTRUCTIONS]',
+        this.cliConfig.systemPrompt.trim(),
+        '[/SYSTEM INSTRUCTIONS]',
+        '',
+        content,
+      ].join('\n');
+    }
+
+    return {
+      ...message,
+      content,
+    };
+  }
+
+  private async prepareAttachments(attachments: CliAttachment[]): Promise<ProcessedAttachment[]> {
+    const workingDirectory = this.cliConfig.workingDir || process.cwd();
+    const fileAttachments: FileAttachment[] = attachments.map((attachment, index) => ({
+      name: attachment.name || `attachment-${index}`,
+      type: attachment.mimeType || (attachment.type === 'image' ? 'image/png' : 'application/octet-stream'),
+      size: attachment.content?.length || 0,
+      data: this.normalizeAttachmentData(attachment.content || ''),
+    }));
+    return processAttachments(fileAttachments, this.sessionId || generateId(), workingDirectory);
+  }
+
+  private emitDiagnostics(diagnostics?: CodexDiagnostic[]): void {
+    if (!diagnostics || diagnostics.length === 0) {
+      return;
+    }
+
+    const seen = new Set<string>();
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.level === 'info') {
+        continue;
+      }
+      const key = `${diagnostic.category}:${diagnostic.line}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: diagnostic.fatal ? 'error' : 'system',
+        content: `[codex] ${diagnostic.line}`,
+        metadata: {
+          diagnostic: true,
+          category: diagnostic.category,
+          fatal: diagnostic.fatal,
+          level: diagnostic.level,
+        },
+      });
+    }
+  }
+
+  private extractTextFromItem(item: Record<string, unknown>): string | undefined {
+    if (typeof item['text'] === 'string') {
+      return item['text'];
+    }
+
+    const message = item['message'];
+    if (message && typeof message === 'object' && typeof (message as Record<string, unknown>)['content'] === 'string') {
+      return (message as Record<string, unknown>)['content'] as string;
+    }
+
+    const content = item['content'];
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    return undefined;
+  }
+
+  private parseTranscript(
+    rawStdout: string,
+    diagnostics: CodexDiagnostic[]
+  ): {
+    hasMeaningfulOutput: boolean;
+    response: CliResponse & { metadata: Record<string, unknown>; thinking?: ThinkingBlock[] };
+    threadId?: string;
+  } {
+    const lines = rawStdout.split('\n').map((line) => line.trim()).filter(Boolean);
+    const contentParts: string[] = [];
+    const toolCalls: CliToolCall[] = [];
+    let usage: CliUsage | undefined;
+    let threadId: string | undefined;
+
+    for (const line of lines) {
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        const type = typeof event['type'] === 'string' ? event['type'] : '';
+
+        if (type === 'thread.started' && typeof event['thread_id'] === 'string') {
+          threadId = event['thread_id'];
+          continue;
+        }
+
+        if (type === 'turn.completed' && event['usage'] && typeof event['usage'] === 'object') {
+          const usageEvent = event['usage'] as Record<string, unknown>;
+          const inputTokens = typeof usageEvent['input_tokens'] === 'number' ? usageEvent['input_tokens'] : 0;
+          const outputTokens = typeof usageEvent['output_tokens'] === 'number' ? usageEvent['output_tokens'] : 0;
+          usage = {
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          };
+          continue;
+        }
+
+        if (type === 'item.completed' && event['item'] && typeof event['item'] === 'object') {
+          const item = event['item'] as Record<string, unknown>;
+          const itemType = typeof item['type'] === 'string' ? item['type'] : '';
+
+          if (itemType === 'agent_message') {
+            const text = this.extractTextFromItem(item);
+            if (text) {
+              contentParts.push(text);
+            }
+            continue;
+          }
+
+          if (itemType === 'command_execution') {
+            toolCalls.push({
+              id: typeof item['id'] === 'string' ? item['id'] : `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              name: 'command_execution',
+              arguments: {
+                command: item['command'],
+                exitCode: item['exit_code'],
+                status: item['status'],
+              },
+              result: typeof item['aggregated_output'] === 'string' ? item['aggregated_output'] : undefined,
+            });
+            continue;
+          }
+
+          const fallbackText = this.extractTextFromItem(item);
+          if (fallbackText) {
+            contentParts.push(fallbackText);
+          }
+          continue;
+        }
+
+        if (type === 'message' && typeof event['content'] === 'string') {
+          contentParts.push(event['content']);
+          continue;
+        }
+
+        if (type === 'agent_message' && event['message'] && typeof event['message'] === 'object') {
+          const message = event['message'] as Record<string, unknown>;
+          if (typeof message['content'] === 'string') {
+            contentParts.push(message['content']);
+          }
+          continue;
+        }
+
+        if (type === 'text' && typeof event['text'] === 'string') {
+          contentParts.push(event['text']);
+          continue;
+        }
+      } catch {
+        if (!line.startsWith('{')) {
+          contentParts.push(line);
+        }
+      }
+    }
+
+    let content = contentParts.join('\n').trim();
+    if (!content) {
+      content = this.cleanContent(rawStdout);
+    }
+
+    if (toolCalls.length === 0) {
+      toolCalls.push(...this.extractToolCallsFromFallback(rawStdout));
+    }
+
+    const extracted = extractThinkingContent(content);
+
+    return {
+      hasMeaningfulOutput: extracted.response.trim().length > 0 || toolCalls.length > 0,
+      response: {
+        id: this.generateResponseId(),
+        content: extracted.response,
+        role: 'assistant',
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        usage,
+        metadata: {
+          diagnostics,
+          threadId,
+        },
+        raw: rawStdout,
+        thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
+      },
+      threadId,
+    };
+  }
+
+  private processStdoutLine(line: string, state: CodexExecutionState): void {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const event = JSON.parse(trimmed) as Record<string, unknown>;
+      if (event['type'] === 'thread.started' && typeof event['thread_id'] === 'string') {
+        state.threadId = event['thread_id'];
+      }
+      return;
+    } catch {
+      // Non-JSON lines are kept in raw stdout and parsed later as fallback content.
+    }
+  }
+
+  private shouldUseResumeCommand(): boolean {
+    return Boolean(this.shouldResumeNextTurn && this.sessionId);
+  }
+
+  private supportsNativeResume(): boolean {
+    return this.cliConfig.approvalMode === 'full-auto';
+  }
+
+  private buildReplayPrompt(currentMessage: string): string {
+    const replayEntries = this.conversationHistory
+      .slice(-CodexCliAdapter.MAX_REPLAY_ENTRIES)
+      .map((entry) => {
+        const role = entry.role === 'user' ? 'User' : 'Assistant';
+        return [
+          `<${role}>`,
+          this.truncateReplayContent(entry.content),
+          `</${role}>`,
+        ].join('\n');
+      });
+
+    return [
+      '[CONVERSATION HISTORY]',
+      'Use the recent transcript below as context for the current request.',
+      '',
+      ...replayEntries,
+      '',
+      '[/CONVERSATION HISTORY]',
+      '',
+      '[CURRENT USER MESSAGE]',
+      currentMessage,
+      '[/CURRENT USER MESSAGE]',
+    ].join('\n');
+  }
+
+  private truncateReplayContent(content: string): string {
+    const normalized = content.trim();
+    if (normalized.length <= CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY) {
+      return normalized;
+    }
+    return `${normalized.slice(0, CodexCliAdapter.MAX_REPLAY_CHARS_PER_ENTRY)}...[truncated]`;
+  }
+
+  private consumeLines(
+    chunk: string,
+    carry: string,
+    handleLine: (line: string) => void
+  ): string {
+    const combined = carry + chunk;
+    const lines = combined.split('\n');
+    const remainder = lines.pop() || '';
+    for (const line of lines) {
+      if (line.trim()) {
+        handleLine(line);
+      }
+    }
+    return remainder;
+  }
+
+  private extractToolCallsFromFallback(raw: string): CliToolCall[] {
+    const toolCalls: CliToolCall[] = [];
+    const toolPattern = /\[TOOL:\s*(\w+)\]([\s\S]*?)\[\/TOOL\]/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = toolPattern.exec(raw)) !== null) {
+      toolCalls.push({
+        id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: match[1],
+        arguments: { raw: match[2].trim() },
+      });
+    }
+
+    return toolCalls;
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  private recordConversationTurn(message: CliMessage, response: CliResponse): void {
+    const userContent = this.buildHistoryEntryContent(message);
+    if (userContent) {
+      this.conversationHistory.push({ role: 'user', content: userContent });
+    }
+
+    const assistantContent = response.content.trim() || this.summarizeToolCalls(response.toolCalls);
+    if (assistantContent) {
+      this.conversationHistory.push({ role: 'assistant', content: assistantContent });
+    }
+
+    if (this.conversationHistory.length > CodexCliAdapter.MAX_REPLAY_ENTRIES) {
+      this.conversationHistory = this.conversationHistory.slice(-CodexCliAdapter.MAX_REPLAY_ENTRIES);
+    }
+  }
+
+  private buildHistoryEntryContent(message: CliMessage): string {
+    const imageNames = (message.attachments || [])
+      .filter((attachment) => attachment.type === 'image')
+      .map((attachment) => attachment.name || 'image');
+    const imageSummary = imageNames.length > 0
+      ? `[Attached images: ${imageNames.join(', ')}]`
+      : '';
+
+    if (message.content.trim() && imageSummary) {
+      return `${message.content.trim()}\n${imageSummary}`;
+    }
+
+    return message.content.trim() || imageSummary;
+  }
+
+  private summarizeToolCalls(toolCalls?: CliToolCall[]): string {
+    if (!toolCalls || toolCalls.length === 0) {
+      return '';
+    }
+
+    return toolCalls
+      .slice(0, 3)
+      .map((toolCall) => {
+        if (toolCall.name === 'command_execution' && typeof toolCall.arguments['command'] === 'string') {
+          return `Executed command: ${toolCall.arguments['command'] as string}`;
+        }
+        return `Used tool: ${toolCall.name}`;
+      })
+      .join('\n');
+  }
+
+  private normalizeAttachmentData(data: string): string {
+    if (!data) {
+      return data;
+    }
+
+    if (data.startsWith('data:')) {
+      return data;
+    }
+
+    if (this.looksLikeBase64(data)) {
+      return data;
+    }
+
+    return Buffer.from(data, 'utf-8').toString('base64');
+  }
+
+  private looksLikeBase64(data: string): boolean {
+    if (data.length < 16 || data.length % 4 !== 0) {
+      return false;
+    }
+    return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
   }
 }

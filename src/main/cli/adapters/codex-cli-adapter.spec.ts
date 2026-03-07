@@ -1,82 +1,315 @@
-import { describe, expect, it, vi } from 'vitest';
+import type { ChildProcess } from 'child_process';
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { PassThrough } from 'stream';
+import { EventEmitter } from 'events';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexCliAdapter } from './codex-cli-adapter';
 
-describe('CodexCliAdapter context usage', () => {
-  it('reports vision as unsupported in orchestrator mode', () => {
-    const adapter = new CodexCliAdapter();
-    const capabilities = adapter.getCapabilities();
-    expect(capabilities.vision).toBe(false);
+type MockChildProcess = ChildProcess & EventEmitter & {
+  emitClose: (code?: number | null, signal?: string | null) => void;
+  stderr: PassThrough;
+  stdin: PassThrough;
+  stdout: PassThrough;
+};
+
+function createMockProcess(): MockChildProcess {
+  const proc = new EventEmitter() as MockChildProcess;
+  proc.stdout = new PassThrough();
+  proc.stderr = new PassThrough();
+  proc.stdin = new PassThrough();
+  proc.killed = false;
+  proc.kill = vi.fn().mockImplementation(() => {
+    proc.killed = true;
+    return true;
+  }) as ChildProcess['kill'];
+  proc.emitClose = (code = 0, signal = null) => {
+    proc.emit('close', code, signal);
+  };
+  return proc;
+}
+
+function queueCodexRun(
+  spawnSpy: ReturnType<typeof vi.spyOn>,
+  options: {
+    code?: number;
+    stderrLines?: string[];
+    stdoutLines?: string[];
+  }
+): void {
+  const proc = createMockProcess();
+  spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+  setTimeout(() => {
+    for (const line of options.stdoutLines || []) {
+      proc.stdout.write(`${line}\n`);
+    }
+    proc.stdout.end();
+
+    for (const line of options.stderrLines || []) {
+      proc.stderr.write(`${line}\n`);
+    }
+    proc.stderr.end();
+
+    proc.emitClose(options.code ?? 0, null);
+  }, 0);
+}
+
+describe('CodexCliAdapter', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('rejects attachments in orchestrator mode', async () => {
-    const adapter = new CodexCliAdapter();
-    const sendMessageSpy = vi.spyOn(adapter, 'sendMessage');
+  it('only advertises native resume when full-auto mode is enabled', () => {
+    const readOnlyAdapter = new CodexCliAdapter();
+    expect(readOnlyAdapter.getCapabilities().vision).toBe(true);
+    expect(readOnlyAdapter.getRuntimeCapabilities().supportsResume).toBe(false);
+    expect(readOnlyAdapter.getRuntimeCapabilities().supportsForkSession).toBe(false);
 
-    await adapter.spawn();
-    await expect(
-      adapter.sendInput('hello', [
-        {
-          name: 'image.png',
-          type: 'image/png',
-          path: '/tmp/image.png',
+    const fullAutoAdapter = new CodexCliAdapter({
+      approvalMode: 'full-auto',
+      sandboxMode: 'workspace-write',
+    });
+    expect(fullAutoAdapter.getRuntimeCapabilities().supportsResume).toBe(true);
+  });
+
+  it('parses structured command execution transcripts', () => {
+    const adapter = new CodexCliAdapter();
+    const response = adapter.parseOutput([
+      '{"type":"thread.started","thread_id":"thread-123"}',
+      '{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/tmp/work\\n","exit_code":0,"status":"completed"}}',
+      '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"/tmp/work"}}',
+      '{"type":"turn.completed","usage":{"input_tokens":42,"output_tokens":7}}',
+    ].join('\n'));
+
+    expect(response.content).toBe('/tmp/work');
+    expect(response.toolCalls).toHaveLength(1);
+    expect(response.toolCalls?.[0].name).toBe('command_execution');
+    expect(response.toolCalls?.[0].arguments['command']).toBe('/bin/zsh -lc pwd');
+    expect(response.toolCalls?.[0].result).toBe('/tmp/work\n');
+    expect(response.usage).toEqual({
+      inputTokens: 42,
+      outputTokens: 7,
+      totalTokens: 49,
+    });
+    expect(response.metadata?.['threadId']).toBe('thread-123');
+  });
+
+  it('updates the native session id and resumes on subsequent turns in full-auto mode', async () => {
+    const adapter = new CodexCliAdapter({
+      approvalMode: 'full-auto',
+      sandboxMode: 'workspace-write',
+      workingDir: '/tmp/project',
+    });
+    const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+    queueCodexRun(spawnSpy, {
+      stdoutLines: [
+        '{"type":"thread.started","thread_id":"thread-abc"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"first"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}',
+      ],
+    });
+
+    const first = await adapter.sendMessage({ role: 'user', content: 'first' });
+    expect(first.content).toBe('first');
+    expect(adapter.getSessionId()).toBe('thread-abc');
+
+    queueCodexRun(spawnSpy, {
+      stdoutLines: [
+        '{"type":"thread.started","thread_id":"thread-abc"}',
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"second"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":6}}',
+      ],
+    });
+
+    const second = await adapter.sendMessage({ role: 'user', content: 'second' });
+    expect(second.content).toBe('second');
+
+    const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+    const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+    expect(firstArgs.slice(0, 2)).toEqual(['exec', '--json']);
+    expect(firstArgs).not.toContain('resume');
+    expect(secondArgs.slice(0, 3)).toEqual(['exec', 'resume', '--json']);
+    expect(secondArgs).toContain('thread-abc');
+    expect(secondArgs[secondArgs.length - 1]).toBe('second');
+  });
+
+  it('replays recent conversation instead of using native resume in read-only mode', async () => {
+    const adapter = new CodexCliAdapter({
+      approvalMode: 'suggest',
+      sandboxMode: 'read-only',
+      workingDir: '/tmp/project',
+    });
+    const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+    queueCodexRun(spawnSpy, {
+      stdoutLines: [
+        '{"type":"thread.started","thread_id":"thread-readonly"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"first answer"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}',
+      ],
+    });
+
+    const first = await adapter.sendMessage({ role: 'user', content: 'first question' });
+    expect(first.content).toBe('first answer');
+    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
+
+    queueCodexRun(spawnSpy, {
+      stdoutLines: [
+        '{"type":"thread.started","thread_id":"thread-readonly-2"}',
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"second answer"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":6}}',
+      ],
+    });
+
+    const second = await adapter.sendMessage({ role: 'user', content: 'second question' });
+    expect(second.content).toBe('second answer');
+
+    const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+    const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+    expect(firstArgs.slice(0, 2)).toEqual(['exec', '--json']);
+    expect(firstArgs).toContain('--sandbox');
+    expect(firstArgs).toContain('read-only');
+    expect(secondArgs.slice(0, 2)).toEqual(['exec', '--json']);
+    expect(secondArgs).not.toContain('resume');
+    expect(secondArgs).toContain('--sandbox');
+    expect(secondArgs).toContain('read-only');
+
+    const secondPrompt = secondArgs[secondArgs.length - 1];
+    expect(secondPrompt).toContain('[CONVERSATION HISTORY]');
+    expect(secondPrompt).toContain('<User>\nfirst question\n</User>');
+    expect(secondPrompt).toContain('<Assistant>\nfirst answer\n</Assistant>');
+    expect(secondPrompt).toContain('[CURRENT USER MESSAGE]\nsecond question\n[/CURRENT USER MESSAGE]');
+  });
+
+  it('retries once when a successful run returns no assistant content', async () => {
+    const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+    const executeSpy = vi.spyOn(
+      adapter as unknown as {
+        executePreparedMessage(message: unknown): Promise<{
+          code: number | null;
+          diagnostics: { fatal: boolean }[];
+          raw: string;
+          response: { content: string; id: string; metadata: Record<string, unknown>; role: 'assistant'; usage?: { inputTokens: number; outputTokens: number; totalTokens: number } };
+        }>;
+      },
+      'executePreparedMessage'
+    );
+    executeSpy
+      .mockResolvedValueOnce({
+        code: 0,
+        diagnostics: [{ fatal: false }],
+        raw: '',
+        response: {
+          id: 'resp-empty',
+          role: 'assistant',
+          content: '',
+          metadata: {},
+          usage: { inputTokens: 25, outputTokens: 0, totalTokens: 25 },
         },
-      ])
-    ).rejects.toThrow('does not support attachments');
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        diagnostics: [],
+        raw: '',
+        response: {
+          id: 'resp-recovered',
+          role: 'assistant',
+          content: 'recovered',
+          metadata: {},
+          usage: { inputTokens: 25, outputTokens: 8, totalTokens: 33 },
+        },
+      });
 
-    expect(sendMessageSpy).not.toHaveBeenCalled();
+    const response = await adapter.sendMessage({ role: 'user', content: 'recover' });
+    expect(response.content).toBe('recovered');
+    expect(executeSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('emits current-turn usage instead of cumulative usage', async () => {
-    const adapter = new CodexCliAdapter();
-    const contextEvents: Array<{ used: number; total: number; percentage: number }> = [];
+  it('prepares image attachments as -i args and file attachments as prompt references', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'codex-adapter-'));
+    try {
+      const adapter = new CodexCliAdapter({ workingDir: tempDir });
+      const prepared = await (adapter as unknown as {
+        prepareMessage(message: {
+          attachments: { content: string; mimeType: string; name: string; type: 'file' | 'image' }[];
+          content: string;
+          role: 'user';
+        }): Promise<{ attachments?: { path?: string; type: string }[]; content: string }>;
+      }).prepareMessage({
+        role: 'user',
+        content: 'Inspect these attachments',
+        attachments: [
+          {
+            type: 'image',
+            name: 'diagram.png',
+            mimeType: 'image/png',
+            content: Buffer.from('fake-image').toString('base64'),
+          },
+          {
+            type: 'file',
+            name: 'notes.txt',
+            mimeType: 'text/plain',
+            content: Buffer.from('hello world', 'utf-8').toString('base64'),
+          },
+        ],
+      });
 
+      const args = (adapter as unknown as {
+        buildArgs(message: { attachments?: { path?: string; type: string }[]; content: string }): string[];
+      }).buildArgs(prepared);
+      expect(args).toContain('-i');
+      const prompt = args[args.length - 1];
+      expect(prompt).toContain('[Attached file:');
+      expect(prompt).toContain('notes.txt');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('supports current-turn context usage and emits tool result messages', async () => {
+    const adapter = new CodexCliAdapter();
+    vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+      available: true,
+      authenticated: true,
+      path: 'codex',
+      version: '0.107.0',
+    });
+    vi.spyOn(adapter, 'sendMessage').mockResolvedValue({
+      id: 'resp-1',
+      role: 'assistant',
+      content: 'done',
+      toolCalls: [
+        {
+          id: 'tool-1',
+          name: 'command_execution',
+          arguments: { command: '/bin/zsh -lc ls' },
+          result: 'README.md\n',
+        },
+      ],
+      usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
+    });
+
+    const outputEvents: { content: string; type: string }[] = [];
+    const contextEvents: { percentage: number; total: number; used: number }[] = [];
+
+    adapter.on('output', (message) => {
+      outputEvents.push({ content: message.content, type: message.type });
+    });
     adapter.on('context', (usage) => {
       contextEvents.push(usage);
     });
 
-    const sendMessageSpy = vi.spyOn(adapter, 'sendMessage');
-    sendMessageSpy
-      .mockResolvedValueOnce({
-        id: 'resp-1',
-        role: 'assistant',
-        content: 'ok',
-        usage: { inputTokens: 49772, outputTokens: 20, totalTokens: 49792 },
-      })
-      .mockResolvedValueOnce({
-        id: 'resp-2',
-        role: 'assistant',
-        content: 'ok',
-        usage: { inputTokens: 49772, outputTokens: 39, totalTokens: 49811 },
-      });
-
     await adapter.spawn();
-    await adapter.sendInput('Reply with exactly: ok');
-    await adapter.sendInput('Reply with exactly: ok');
+    await adapter.sendInput('Inspect these attachments');
 
-    expect(contextEvents).toHaveLength(2);
-    expect(contextEvents[0].used).toBe(49792);
-    expect(contextEvents[1].used).toBe(49811);
-    expect(contextEvents[1].used).not.toBe(99603);
-  });
+    expect(outputEvents.some((event) => event.type === 'tool_use' && event.content.includes('Running command'))).toBe(true);
+    expect(outputEvents.some((event) => event.type === 'tool_result' && event.content.includes('README.md'))).toBe(true);
+    expect(outputEvents.some((event) => event.type === 'assistant' && event.content === 'done')).toBe(true);
 
-  it('falls back to totalTokens when input/output breakdown is unavailable', async () => {
-    const adapter = new CodexCliAdapter();
-    const onContext = vi.fn();
-    adapter.on('context', onContext);
-
-    vi.spyOn(adapter, 'sendMessage').mockResolvedValue({
-      id: 'resp-1',
-      role: 'assistant',
-      content: 'ok',
-      usage: { totalTokens: 1234 },
-    });
-
-    await adapter.spawn();
-    await adapter.sendInput('test');
-
-    expect(onContext).toHaveBeenCalledTimes(1);
-    const usage = onContext.mock.calls[0][0] as { used: number; total: number; percentage: number };
-    expect(usage.used).toBe(1234);
-    expect(usage.total).toBe(128000);
+    expect(contextEvents).toHaveLength(1);
+    expect(contextEvents[0].used).toBe(100);
+    expect(contextEvents[0].total).toBe(400000);
   });
 });

@@ -4,7 +4,7 @@
 
 import { EventEmitter } from 'events';
 import { app } from 'electron';
-import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import {
   createCliAdapter,
@@ -15,7 +15,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
-import { getModelsForProvider, OPENAI_MODELS, isModelTier, resolveModelForTier } from '../../shared/types/provider.types';
+import { getModelsForProvider, isModelTier, looksLikeCodexModelId, resolveModelForTier } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
@@ -93,7 +93,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   /** Returns MCP config paths to pass to spawned CLI instances. */
   private getMcpConfig(): string[] {
     try {
-      if (require('fs').existsSync(MCP_CONFIG_PATH)) {
+      if (existsSync(MCP_CONFIG_PATH)) {
         logger.info('MCP config found', { path: MCP_CONFIG_PATH });
         return [MCP_CONFIG_PATH];
       }
@@ -117,8 +117,8 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private getAdapterRuntimeCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {
-    if (adapter && typeof (adapter as any).getRuntimeCapabilities === 'function') {
-      return (adapter as any).getRuntimeCapabilities() as AdapterRuntimeCapabilities;
+    if (adapter && 'getRuntimeCapabilities' in adapter && typeof adapter.getRuntimeCapabilities === 'function') {
+      return adapter.getRuntimeCapabilities();
     }
     return {
       supportsResume: false,
@@ -144,10 +144,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       }
 
-      const todoLineMatches = message.content.match(/(?:^|\n)\s*(?:todo|next|follow-up)\s*[:\-]\s*(.+)/gi);
+      const todoLineMatches = message.content.match(/(?:^|\n)\s*(?:todo|next|follow-up)\s*[:-]\s*(.+)/gi);
       if (todoLineMatches) {
         for (const match of todoLineMatches) {
-          unresolved.add(match.replace(/(?:^|\n)\s*(?:todo|next|follow-up)\s*[:\-]\s*/i, '').trim());
+          unresolved.add(match.replace(/(?:^|\n)\s*(?:todo|next|follow-up)\s*[:-]\s*/i, '').trim());
         }
       }
     }
@@ -447,16 +447,15 @@ export class InstanceLifecycleManager extends EventEmitter {
         const providerModels = getModelsForProvider(resolvedCliType);
         if (providerModels.length > 0) {
           const isValid = providerModels.some(m => m.id === resolvedModel);
-          if (!isValid) {
-            const fallbackModel =
-              resolvedCliType === 'codex' ? OPENAI_MODELS.GPT53_CODEX : undefined;
+          const allowCodexDynamicModel = resolvedCliType === 'codex' && looksLikeCodexModelId(resolvedModel);
+          if (!isValid && !allowCodexDynamicModel) {
             logger.warn('Model not valid for target provider, using provider default', {
               model: resolvedModel,
               provider: resolvedCliType,
               validModels: providerModels.map(m => m.id),
-              fallbackModel: fallbackModel || 'provider-default',
+              fallbackModel: 'provider-default',
             });
-            resolvedModel = fallbackModel;
+            resolvedModel = undefined;
           }
         }
       }
@@ -1058,14 +1057,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     let validatedModel: string | undefined = newModel;
     if (cliType !== 'claude') {
       const providerModels = getModelsForProvider(cliType);
-      if (providerModels.length > 0 && !providerModels.some(m => m.id === newModel)) {
-        const fallbackModel = cliType === 'codex' ? OPENAI_MODELS.GPT53_CODEX : undefined;
+      const allowCodexDynamicModel = cliType === 'codex' && looksLikeCodexModelId(newModel);
+      if (providerModels.length > 0 && !providerModels.some(m => m.id === newModel) && !allowCodexDynamicModel) {
         logger.warn('Model not valid for target provider during changeModel, using provider default', {
           model: newModel,
           provider: cliType,
-          fallbackModel: fallbackModel || 'provider-default',
+          fallbackModel: 'provider-default',
         });
-        validatedModel = fallbackModel;
+        validatedModel = undefined;
       }
     }
 

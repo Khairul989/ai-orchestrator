@@ -37,8 +37,8 @@ export class CodexCliProvider extends BaseProvider {
       toolExecution: true,
       streaming: true,
       multiTurn: true,
-      vision: false, // Codex CLI doesn't support images
-      fileAttachments: false, // Inline/base64 attachment mapping is not supported in orchestrator mode
+      vision: true,
+      fileAttachments: true,
       functionCalling: true,
       builtInCodeTools: true,
     };
@@ -72,10 +72,13 @@ export class CodexCliProvider extends BaseProvider {
     // Don't specify a model by default - let Codex use its configured default
     // This avoids issues with ChatGPT accounts that don't support certain models
     const codexConfig: CodexCliConfig = {
+      sessionId: options.sessionId,
+      resume: options.resume,
       model: options.model || this.config.defaultModel, // undefined is OK - Codex will use its default
       approvalMode: options.yoloMode ? 'full-auto' : 'suggest',
       sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
       workingDir: options.workingDirectory,
+      systemPrompt: options.systemPrompt,
       timeout: 300000,
     };
 
@@ -146,14 +149,16 @@ export class CodexCliProvider extends BaseProvider {
       throw new Error('Provider not initialized');
     }
 
-    if (attachments && attachments.length > 0) {
-      throw new Error('Codex provider does not support attachments. Vision capability is disabled.');
-    }
-
     try {
       const response = await this.adapter.sendMessage({
         role: 'user',
         content: message,
+        attachments: attachments?.map((attachment) => ({
+          type: attachment.mimeType?.startsWith('image/') ? 'image' : 'file',
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          content: attachment.data,
+        })),
       });
 
       // Update usage
@@ -180,7 +185,7 @@ export class CodexCliProvider extends BaseProvider {
     }
   }
 
-  async terminate(graceful: boolean = true): Promise<void> {
+  async terminate(graceful = true): Promise<void> {
     if (this.adapter) {
       await this.adapter.terminate(graceful);
       this.adapter = null;

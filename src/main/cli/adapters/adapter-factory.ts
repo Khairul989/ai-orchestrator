@@ -143,9 +143,13 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
  */
 export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapter {
   const codexConfig: CodexCliConfig = {
+    sessionId: options.sessionId,
+    resume: options.resume,
     workingDir: options.workingDirectory,
     model: options.model,
+    systemPrompt: options.systemPrompt,
     approvalMode: options.yoloMode ? 'full-auto' : 'suggest',
+    sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
     timeout: options.timeout,
   };
   return new CodexCliAdapter(codexConfig);
